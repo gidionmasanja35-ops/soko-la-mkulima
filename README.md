@@ -70,3 +70,4 @@ Ukiona "Soko la Mkulima USSD server inafanya kazi vizuri!" - umefanikiwa!
    tier nzuri kwa kuanzia) ili isihitaji kompyuta yako kuwa wazi muda wote
 4. Ongeza namba fupi halisi (siyo ya sandbox) - hii inahitaji malipo kidogo
    kwa Africa's Talking au Beem
+# soko-la-mkulima
