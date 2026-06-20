@@ -200,7 +200,8 @@ app.post("/ussd", async (req, res) => {
       if (majibu.length === 1) {
         response = `CON Karibu Mnunuzi
 1. Tafuta Mazao
-2. Omba Zao`;
+2. Omba Zao
+3. Jisajili`;
       } else if (majibu[1] === "1") {
         // ---- TAFUTA MAZAO (search yaliyopo) ----
         if (majibu.length === 2) {
@@ -293,6 +294,34 @@ app.post("/ussd", async (req, res) => {
           }
 
           response = "END Ombi lako limepokelewa! Wakulima wa eneo hilo wamejulishwa.";
+        }
+      } else if (majibu[1] === "3") {
+        // ---- JISAJILI - usajili wa mnunuzi ----
+        if (majibu.length === 2) {
+          response = "CON Weka Jina Lako";
+        } else if (majibu.length === 3) {
+          response = "CON Mkoa wako";
+        } else if (majibu.length === 4) {
+          response = "CON Wilaya yako";
+        } else if (majibu.length === 5) {
+          const jina = majibu[2];
+          const mkoa = majibu[3];
+          const wilaya = majibu[4];
+
+          const tayari = await pool.query(
+            "SELECT 1 FROM wanunuzi WHERE phone_number = $1",
+            [phoneNumber]
+          );
+
+          if (tayari.rows.length > 0) {
+            response = "END Tayari umesajiliwa.";
+          } else {
+            await pool.query(
+              "INSERT INTO wanunuzi (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
+              [jina, mkoa, wilaya, phoneNumber]
+            );
+            response = "END Umesajiliwa Kikamilifu";
+          }
         }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
@@ -424,7 +453,17 @@ app.get("/migrate-v2", async (req, res) => {
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
-    res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests) zimeongezwa.");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wanunuzi (
+        id SERIAL PRIMARY KEY,
+        jina VARCHAR(100) NOT NULL,
+        mkoa VARCHAR(50) NOT NULL,
+        wilaya VARCHAR(50) NOT NULL,
+        phone_number VARCHAR(20) NOT NULL,
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests, wanunuzi) zimeongezwa.");
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
   }
@@ -447,6 +486,16 @@ app.get("/admin", async (req, res) => {
     const requestsResult = await pool.query(
       "SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 50"
     );
+    const wanunuziResult = await pool.query(
+      "SELECT COUNT(*) FROM wanunuzi"
+    );
+    const mahitajiResult = await pool.query(`
+      SELECT zao, COUNT(*) as idadi
+      FROM buyer_requests
+      GROUP BY zao
+      ORDER BY idadi DESC
+      LIMIT 10
+    `);
     const mazaoAsilimiaResult = await pool.query(`
       SELECT zao, COUNT(*) as idadi
       FROM matangazo
@@ -463,6 +512,10 @@ app.get("/admin", async (req, res) => {
           : 0;
         return `<li>${capitalize(r.zao)}: ${asilimia}% (${r.idadi})</li>`;
       })
+      .join("");
+
+    const mahitajiRows = mahitajiResult.rows
+      .map((r) => `<li>${capitalize(r.zao)}: ${r.idadi} maombi</li>`)
       .join("");
 
     const rows = result.rows
@@ -554,11 +607,15 @@ app.get("/admin", async (req, res) => {
         <h2>Takwimu za Soko</h2>
         <div class="takwimu">
           <div>${wakulimaResult.rows.length}<span>Wakulima</span></div>
+          <div>${wanunuziResult.rows[0].count}<span>Wanunuzi</span></div>
           <div>${matangazoResult.rows.length}<span>Matangazo</span></div>
           <div>${requestsResult.rows.length}<span>Maombi ya Wanunuzi</span></div>
         </div>
-        <h3>Mazao Yanayouzwa Zaidi</h3>
+        <h3>Mazao Yanayouzwa Zaidi (na Wakulima)</h3>
         <ul>${asilimiaRows || "<li>Hakuna data bado.</li>"}</ul>
+
+        <h3>Mazao Yanayohitajika Zaidi (na Wanunuzi)</h3>
+        <ul>${mahitajiRows || "<li>Hakuna data bado.</li>"}</ul>
 
         <h2>Simamia Bei za Mazao</h2>
 
