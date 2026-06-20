@@ -22,110 +22,172 @@ app.post("/ussd", async (req, res) => {
 
   try {
     if (text === "" || text === undefined) {
-      // HATUA YA 0: Menyu kuu
+      // HATUA YA 0: Menyu ya juu kabisa - Mkulima au Mnunuzi
       response = `CON Karibu Soko la Mkulima
+1. Mkulima
+2. Mnunuzi`;
+    } else if (majibu[0] === "1") {
+      // ============ UPANDE WA MKULIMA ============
+      if (majibu.length === 1) {
+        response = `CON Karibu Mkulima
 1. Angalia Bei za Zao
 2. Tangaza Mazao Yako
 3. Tazama Matangazo
 4. Jisajili`;
-    } else if (majibu[0] === "1") {
-      // ANGALIA BEI
+      } else if (majibu[1] === "1") {
+        // ANGALIA BEI
+        if (majibu.length === 2) {
+          const result = await pool.query(
+            "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          );
+          const mazao = result.rows.map((r) => r.zao);
+          response =
+            "CON Chagua zao:\n" +
+            mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
+        } else if (majibu.length === 3) {
+          const result = await pool.query(
+            "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          );
+          const mazao = result.rows.map((r) => r.zao);
+          const zao = mazao[parseInt(majibu[2]) - 1];
+
+          if (!zao) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            const mikoaResult = await pool.query(
+              "SELECT mkoa FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
+              [zao]
+            );
+            const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+            response =
+              "CON Chagua mkoa:\n" +
+              mikoa.map((m, i) => `${i + 1}. ${m}`).join("\n");
+          }
+        } else if (majibu.length === 4) {
+          const zaoResult = await pool.query(
+            "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          );
+          const mazao = zaoResult.rows.map((r) => r.zao);
+          const zao = mazao[parseInt(majibu[2]) - 1];
+
+          const mikoaResult = await pool.query(
+            "SELECT mkoa, bei FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
+            [zao]
+          );
+          const chaguo = mikoaResult.rows[parseInt(majibu[3]) - 1];
+
+          if (!chaguo) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            response = `END Bei ya ${zao} mkoa wa ${chaguo.mkoa} ni TZS ${chaguo.bei} kwa kilo.`;
+          }
+        }
+      } else if (majibu[1] === "2") {
+        // TANGAZA MAZAO
+        if (majibu.length === 2) {
+          response = "CON Andika jina la zao unalouza:";
+        } else if (majibu.length === 3) {
+          response = "CON Andika idadi ya magunia:";
+        } else if (majibu.length === 4) {
+          const zao = majibu[2];
+          const idadi = majibu[3];
+
+          await pool.query(
+            "INSERT INTO matangazo (zao, idadi, phone_number) VALUES ($1, $2, $3)",
+            [zao, idadi, phoneNumber]
+          );
+
+          response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi}) limepokelewa.`;
+        }
+      } else if (majibu[1] === "3") {
+        // TAZAMA MATANGAZO (5 ya mwisho)
+        const result = await pool.query(
+          "SELECT zao, idadi FROM matangazo ORDER BY tarehe DESC LIMIT 5"
+        );
+
+        if (result.rows.length === 0) {
+          response = "END Hakuna matangazo kwa sasa.";
+        } else {
+          const orodha = result.rows
+            .map((m) => `${m.zao} - magunia ${m.idadi}`)
+            .join("\n");
+          response = `END Matangazo ya hivi karibuni:\n${orodha}`;
+        }
+      } else if (majibu[1] === "4") {
+        // JISAJILI - usajili wa mkulima
+        if (majibu.length === 2) {
+          response = "CON Weka Jina Lako";
+        } else if (majibu.length === 3) {
+          response = "CON Mkoa wako";
+        } else if (majibu.length === 4) {
+          response = "CON Wilaya yako";
+        } else if (majibu.length === 5) {
+          const jina = majibu[2];
+          const mkoa = majibu[3];
+          const wilaya = majibu[4];
+
+          await pool.query(
+            "INSERT INTO wakulima (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
+            [jina, mkoa, wilaya, phoneNumber]
+          );
+
+          response = "END Umesajiliwa Kikamilifu";
+        }
+      } else {
+        response = "END Chaguo si sahihi. Jaribu tena.";
+      }
+    } else if (majibu[0] === "2") {
+      // ============ UPANDE WA MNUNUZI ============
       if (majibu.length === 1) {
+        // Onyesha mazao yaliyotangazwa na wakulima (siyo bei_mazao, bali matangazo halisi)
         const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          "SELECT DISTINCT zao FROM matangazo ORDER BY zao"
         );
         const mazao = result.rows.map((r) => r.zao);
-        response =
-          "CON Chagua zao:\n" +
-          mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
+
+        if (mazao.length === 0) {
+          response = "END Hakuna mazao yaliyotangazwa kwa sasa.";
+        } else {
+          response =
+            "CON Tafuta zao:\n" +
+            mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
+        }
       } else if (majibu.length === 2) {
-        const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+        const zaoResult = await pool.query(
+          "SELECT DISTINCT zao FROM matangazo ORDER BY zao"
         );
-        const mazao = result.rows.map((r) => r.zao);
+        const mazao = zaoResult.rows.map((r) => r.zao);
         const zao = mazao[parseInt(majibu[1]) - 1];
 
         if (!zao) {
           response = "END Chaguo si sahihi. Jaribu tena.";
         } else {
-          const mikoaResult = await pool.query(
-            "SELECT mkoa FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
+          // Tafuta matangazo ya zao hilo, ukiunganisha na taarifa za mkulima (kama amejisajili)
+          const matokeoResult = await pool.query(
+            `SELECT m.idadi, m.phone_number, w.jina, w.mkoa, w.wilaya
+             FROM matangazo m
+             LEFT JOIN wakulima w ON m.phone_number = w.phone_number
+             WHERE m.zao = $1
+             ORDER BY m.tarehe DESC
+             LIMIT 5`,
             [zao]
           );
-          const mikoa = mikoaResult.rows.map((r) => r.mkoa);
-          response =
-            "CON Chagua mkoa:\n" +
-            mikoa.map((m, i) => `${i + 1}. ${m}`).join("\n");
+
+          if (matokeoResult.rows.length === 0) {
+            response = `END Hakuna mkulima mwenye ${zao} kwa sasa.`;
+          } else {
+            const orodha = matokeoResult.rows
+              .map((r) => {
+                const eneo = r.mkoa ? `${r.mkoa}, ${r.wilaya}` : "Eneo halijulikani";
+                const jina = r.jina || "Mkulima";
+                return `${jina} - magunia ${r.idadi} - ${eneo} - ${r.phone_number}`;
+              })
+              .join("\n");
+            response = `END Wakulima wenye ${zao}:\n${orodha}`;
+          }
         }
-      } else if (majibu.length === 3) {
-        const zaoResult = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
-        );
-        const mazao = zaoResult.rows.map((r) => r.zao);
-        const zao = mazao[parseInt(majibu[1]) - 1];
-
-        const mikoaResult = await pool.query(
-          "SELECT mkoa, bei FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
-          [zao]
-        );
-        const chaguo = mikoaResult.rows[parseInt(majibu[2]) - 1];
-
-        if (!chaguo) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
-        } else {
-          response = `END Bei ya ${zao} mkoa wa ${chaguo.mkoa} ni TZS ${chaguo.bei} kwa kilo.`;
-        }
-      }
-    } else if (majibu[0] === "2") {
-      // TANGAZA MAZAO
-      if (majibu.length === 1) {
-        response = "CON Andika jina la zao unalouza:";
-      } else if (majibu.length === 2) {
-        response = "CON Andika idadi ya magunia:";
-      } else if (majibu.length === 3) {
-        const zao = majibu[1];
-        const idadi = majibu[2];
-
-        await pool.query(
-          "INSERT INTO matangazo (zao, idadi, phone_number) VALUES ($1, $2, $3)",
-          [zao, idadi, phoneNumber]
-        );
-
-        response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi}) limepokelewa.`;
-      }
-    } else if (majibu[0] === "3") {
-      // TAZAMA MATANGAZO (5 ya mwisho)
-      const result = await pool.query(
-        "SELECT zao, idadi FROM matangazo ORDER BY tarehe DESC LIMIT 5"
-      );
-
-      if (result.rows.length === 0) {
-        response = "END Hakuna matangazo kwa sasa.";
       } else {
-        const orodha = result.rows
-          .map((m) => `${m.zao} - magunia ${m.idadi}`)
-          .join("\n");
-        response = `END Matangazo ya hivi karibuni:\n${orodha}`;
-      }
-    } else if (majibu[0] === "4") {
-      // JISAJILI - usajili wa mkulima
-      if (majibu.length === 1) {
-        response = "CON Weka Jina Lako";
-      } else if (majibu.length === 2) {
-        response = "CON Mkoa wako";
-      } else if (majibu.length === 3) {
-        response = "CON Wilaya yako";
-      } else if (majibu.length === 4) {
-        const jina = majibu[1];
-        const mkoa = majibu[2];
-        const wilaya = majibu[3];
-
-        await pool.query(
-          "INSERT INTO wakulima (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
-          [jina, mkoa, wilaya, phoneNumber]
-        );
-
-        response = "END Umesajiliwa Kikamilifu";
+        response = "END Chaguo si sahihi. Jaribu tena.";
       }
     } else {
       response = "END Chaguo si sahihi. Jaribu tena.";
