@@ -131,33 +131,36 @@ app.post("/ussd", async (req, res) => {
         } else if (majibu.length === 3) {
           response = "CON Andika idadi ya magunia:";
         } else if (majibu.length === 4) {
+          response = "CON Weka bei kwa gunia (TZS):";
+        } else if (majibu.length === 5) {
           const zao = majibu[2];
           const idadi = majibu[3];
+          const bei = majibu[4];
 
           await pool.query(
-            "INSERT INTO matangazo (zao, idadi, phone_number) VALUES ($1, $2, $3)",
-            [zao, idadi, phoneNumber]
+            "INSERT INTO matangazo (zao, idadi, bei, phone_number) VALUES ($1, $2, $3, $4)",
+            [zao, idadi, bei, phoneNumber]
           );
 
           // Tuma SMS ya uthibitisho kwa mkulima
           await tumaSMS(
             phoneNumber,
-            `Tangazo lako la ${capitalize(zao)}\n${idadi}KG limepokelewa.`
+            `Tangazo lako la ${capitalize(zao)}\n${idadi} magunia @ TZS ${bei} limepokelewa.`
           );
 
-          response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi}) limepokelewa.`;
+          response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi} @ TZS ${bei}) limepokelewa.`;
         }
       } else if (majibu[1] === "3") {
-        // TAZAMA MATANGAZO (5 ya mwisho)
+        // TAZAMA MATANGAZO (5 ya mwisho, yanayofanya kazi tu)
         const result = await pool.query(
-          "SELECT zao, idadi FROM matangazo ORDER BY tarehe DESC LIMIT 5"
+          "SELECT zao, idadi, bei FROM matangazo WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY tarehe DESC LIMIT 5"
         );
 
         if (result.rows.length === 0) {
           response = "END Hakuna matangazo kwa sasa.";
         } else {
           const orodha = result.rows
-            .map((m) => `${m.zao} - magunia ${m.idadi}`)
+            .map((m) => `${m.zao} - magunia ${m.idadi} @ TZS ${m.bei || "?"}`)
             .join("\n");
           response = `END Matangazo ya hivi karibuni:\n${orodha}`;
         }
@@ -174,12 +177,20 @@ app.post("/ussd", async (req, res) => {
           const mkoa = majibu[3];
           const wilaya = majibu[4];
 
-          await pool.query(
-            "INSERT INTO wakulima (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
-            [jina, mkoa, wilaya, phoneNumber]
+          const tayari = await pool.query(
+            "SELECT 1 FROM wakulima WHERE phone_number = $1",
+            [phoneNumber]
           );
 
-          response = "END Umesajiliwa Kikamilifu";
+          if (tayari.rows.length > 0) {
+            response = "END Tayari umesajiliwa.";
+          } else {
+            await pool.query(
+              "INSERT INTO wakulima (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
+              [jina, mkoa, wilaya, phoneNumber]
+            );
+            response = "END Umesajiliwa Kikamilifu";
+          }
         }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
@@ -187,60 +198,101 @@ app.post("/ussd", async (req, res) => {
     } else if (majibu[0] === "2") {
       // ============ UPANDE WA MNUNUZI ============
       if (majibu.length === 1) {
-        // Onyesha mazao yaliyotangazwa na wakulima (siyo bei_mazao, bali matangazo halisi)
-        const result = await pool.query(
-          "SELECT DISTINCT zao FROM matangazo ORDER BY zao"
-        );
-        const mazao = result.rows.map((r) => r.zao);
-
-        if (mazao.length === 0) {
-          response = "END Hakuna mazao yaliyotangazwa kwa sasa.";
-        } else {
-          response =
-            "CON Tafuta zao:\n" +
-            mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
-        }
-      } else if (majibu.length === 2) {
-        const zaoResult = await pool.query(
-          "SELECT DISTINCT zao FROM matangazo ORDER BY zao"
-        );
-        const mazao = zaoResult.rows.map((r) => r.zao);
-        const zao = mazao[parseInt(majibu[1]) - 1];
-
-        if (!zao) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
-        } else {
-          // Tafuta matangazo ya zao hilo, ukiunganisha na taarifa za mkulima (kama amejisajili)
-          const matokeoResult = await pool.query(
-            `SELECT m.idadi, m.phone_number, w.jina, w.mkoa, w.wilaya
-             FROM matangazo m
-             LEFT JOIN wakulima w ON m.phone_number = w.phone_number
-             WHERE m.zao = $1
-             ORDER BY m.tarehe DESC
-             LIMIT 5`,
-            [zao]
+        response = `CON Karibu Mnunuzi
+1. Tafuta Mazao
+2. Omba Zao`;
+      } else if (majibu[1] === "1") {
+        // ---- TAFUTA MAZAO (search yaliyopo) ----
+        if (majibu.length === 2) {
+          const result = await pool.query(
+            "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY zao"
           );
+          const mazao = result.rows.map((r) => r.zao);
 
-          if (matokeoResult.rows.length === 0) {
-            response = `END Hakuna mkulima mwenye ${zao} kwa sasa.`;
+          if (mazao.length === 0) {
+            response = "END Hakuna mazao yaliyotangazwa kwa sasa.";
           } else {
-            const orodha = matokeoResult.rows
-              .map((r) => {
-                const eneo = r.mkoa ? `${r.mkoa}, ${r.wilaya}` : "Eneo halijulikani";
-                const jina = r.jina || "Mkulima";
-                return `${jina} - magunia ${r.idadi} - ${eneo} - ${r.phone_number}`;
-              })
-              .join("\n");
-            response = `END Wakulima wenye ${zao}:\n${orodha}`;
+            response =
+              "CON Tafuta zao:\n" +
+              mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
+          }
+        } else if (majibu.length === 3) {
+          const zaoResult = await pool.query(
+            "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY zao"
+          );
+          const mazao = zaoResult.rows.map((r) => r.zao);
+          const zao = mazao[parseInt(majibu[2]) - 1];
 
-            // Tuma SMS kwa kila mkulima aliyepatikana - mnunuzi ameonyesha nia
-            for (const r of matokeoResult.rows) {
-              await tumaSMS(
-                r.phone_number,
-                `Mnunuzi mpya ameonyesha\nnia ya kununua ${capitalize(zao)} yako.`
-              );
+          if (!zao) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            const matokeoResult = await pool.query(
+              `SELECT m.idadi, m.bei, m.phone_number, w.jina, w.mkoa, w.wilaya, w.verified
+               FROM matangazo m
+               LEFT JOIN wakulima w ON m.phone_number = w.phone_number
+               WHERE m.zao = $1 AND m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+               ORDER BY m.tarehe DESC
+               LIMIT 5`,
+              [zao]
+            );
+
+            if (matokeoResult.rows.length === 0) {
+              response = `END Hakuna mkulima mwenye ${zao} kwa sasa.`;
+            } else {
+              const orodha = matokeoResult.rows
+                .map((r) => {
+                  const eneo = r.mkoa ? `${r.mkoa}, ${r.wilaya}` : "Eneo halijulikani";
+                  const jina = r.jina || "Mkulima";
+                  const tiki = r.verified ? " ✓Verified" : "";
+                  const beiTxt = r.bei ? ` @ TZS ${r.bei}` : "";
+                  return `${jina}${tiki} - magunia ${r.idadi}${beiTxt} - ${eneo} - ${r.phone_number}`;
+                })
+                .join("\n");
+              response = `END Wakulima wenye ${zao}:\n${orodha}`;
+
+              // Tuma SMS kwa kila mkulima aliyepatikana - mnunuzi ameonyesha nia
+              for (const r of matokeoResult.rows) {
+                await tumaSMS(
+                  r.phone_number,
+                  `Mnunuzi mpya ameonyesha\nnia ya kununua ${capitalize(zao)} yako.`
+                );
+              }
             }
           }
+        } else {
+          response = "END Chaguo si sahihi. Jaribu tena.";
+        }
+      } else if (majibu[1] === "2") {
+        // ---- OMBA ZAO (Buyer Request - "biggest missing feature") ----
+        if (majibu.length === 2) {
+          response = "CON Unahitaji zao gani?";
+        } else if (majibu.length === 3) {
+          response = "CON Kiasi gani (mfano: 500 magunia)?";
+        } else if (majibu.length === 4) {
+          response = "CON Mkoa gani?";
+        } else if (majibu.length === 5) {
+          const zao = majibu[2];
+          const idadi = majibu[3];
+          const mkoa = majibu[4];
+
+          await pool.query(
+            "INSERT INTO buyer_requests (zao, idadi, mkoa, phone_number) VALUES ($1, $2, $3, $4)",
+            [zao, idadi, mkoa, phoneNumber]
+          );
+
+          // Tafuta wakulima wenye eneo hilo, tuwajulishe (hadi 10)
+          const wakulimaResult = await pool.query(
+            "SELECT phone_number FROM wakulima WHERE mkoa ILIKE $1 LIMIT 10",
+            [mkoa]
+          );
+          for (const w of wakulimaResult.rows) {
+            await tumaSMS(
+              w.phone_number,
+              `Mnunuzi anahitaji ${idadi} ya ${capitalize(zao)}\nmkoa wa ${mkoa}.\nMpigie: ${phoneNumber}`
+            );
+          }
+
+          response = "END Ombi lako limepokelewa! Wakulima wa eneo hilo wamejulishwa.";
         }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
@@ -351,7 +403,34 @@ app.get("/setup-database", async (req, res) => {
   }
 });
 
-// ---- UKURASA WA ADMIN: kuona na kubadilisha bei bila kuandika code ----
+// ROUTE YA MIGRATION (v2): kuongeza safu mpya - bei, verified, active, na buyer_requests
+// Kuitumia mara MOJA: https://yoursite.onrender.com/migrate-v2?siri=SIRI_YAKO
+app.get("/migrate-v2", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi. Siri si sahihi.");
+  }
+  try {
+    await pool.query(`ALTER TABLE matangazo ADD COLUMN IF NOT EXISTS bei INTEGER`);
+    await pool.query(`ALTER TABLE matangazo ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE matangazo ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '90 days')`);
+    await pool.query(`ALTER TABLE wakulima ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS buyer_requests (
+        id SERIAL PRIMARY KEY,
+        zao VARCHAR(100) NOT NULL,
+        idadi VARCHAR(50) NOT NULL,
+        mkoa VARCHAR(50) NOT NULL,
+        phone_number VARCHAR(20) NOT NULL,
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests) zimeongezwa.");
+  } catch (err) {
+    res.status(500).send("❌ Tatizo: " + err.message);
+  }
+});
+
+
 // Fungua: https://yoursite.onrender.com/admin?siri=SIRI_YAKO
 app.get("/admin", async (req, res) => {
   if (req.query.siri !== process.env.ADMIN_SECRET) {
@@ -365,7 +444,26 @@ app.get("/admin", async (req, res) => {
     const matangazoResult = await pool.query(
       "SELECT * FROM matangazo ORDER BY tarehe DESC"
     );
+    const requestsResult = await pool.query(
+      "SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 50"
+    );
+    const mazaoAsilimiaResult = await pool.query(`
+      SELECT zao, COUNT(*) as idadi
+      FROM matangazo
+      GROUP BY zao
+      ORDER BY idadi DESC
+    `);
     const safeSiri = encodeURIComponent(req.query.siri);
+
+    const jumlaMatangazo = matangazoResult.rows.length;
+    const asilimiaRows = mazaoAsilimiaResult.rows
+      .map((r) => {
+        const asilimia = jumlaMatangazo
+          ? Math.round((r.idadi / jumlaMatangazo) * 100)
+          : 0;
+        return `<li>${capitalize(r.zao)}: ${asilimia}% (${r.idadi})</li>`;
+      })
+      .join("");
 
     const rows = result.rows
       .map(
@@ -392,7 +490,17 @@ app.get("/admin", async (req, res) => {
           <td>${w.mkoa}</td>
           <td>${w.wilaya}</td>
           <td>${w.phone_number}</td>
-          <td>${new Date(w.tarehe).toLocaleDateString("sw-TZ")}</td>
+          <td>${w.verified ? "✓ Verified" : "Hajathibitishwa"}</td>
+          <td>
+            ${
+              w.verified
+                ? ""
+                : `<form method="POST" action="/admin/thibitisha?siri=${safeSiri}" style="display:inline">
+                     <input type="hidden" name="id" value="${w.id}">
+                     <button type="submit">Thibitisha</button>
+                   </form>`
+            }
+          </td>
         </tr>`
       )
       .join("");
@@ -403,8 +511,22 @@ app.get("/admin", async (req, res) => {
         <tr>
           <td>${m.zao}</td>
           <td>${m.idadi}</td>
+          <td>${m.bei || "-"}</td>
           <td>${m.phone_number}</td>
           <td>${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</td>
+        </tr>`
+      )
+      .join("");
+
+    const requestsRows = requestsResult.rows
+      .map(
+        (b) => `
+        <tr>
+          <td>${b.zao}</td>
+          <td>${b.idadi}</td>
+          <td>${b.mkoa}</td>
+          <td>${b.phone_number}</td>
+          <td>${new Date(b.tarehe).toLocaleDateString("sw-TZ")}</td>
         </tr>`
       )
       .join("");
@@ -421,10 +543,22 @@ app.get("/admin", async (req, res) => {
           button { padding: 6px 12px; }
           h2 { margin-top: 50px; }
           .idadi { color: #666; font-size: 14px; margin-top: -10px; }
+          .takwimu { display: flex; gap: 30px; background: #f5f5f5; padding: 20px; border-radius: 8px; }
+          .takwimu div { font-size: 28px; font-weight: bold; }
+          .takwimu span { display: block; font-size: 14px; font-weight: normal; color: #555; }
         </style>
       </head>
       <body>
         <h1>Admin - Soko la Mkulima</h1>
+
+        <h2>Takwimu za Soko</h2>
+        <div class="takwimu">
+          <div>${wakulimaResult.rows.length}<span>Wakulima</span></div>
+          <div>${matangazoResult.rows.length}<span>Matangazo</span></div>
+          <div>${requestsResult.rows.length}<span>Maombi ya Wanunuzi</span></div>
+        </div>
+        <h3>Mazao Yanayouzwa Zaidi</h3>
+        <ul>${asilimiaRows || "<li>Hakuna data bado.</li>"}</ul>
 
         <h2>Simamia Bei za Mazao</h2>
 
@@ -445,15 +579,22 @@ app.get("/admin", async (req, res) => {
         <h2>Wakulima Waliosajiliwa</h2>
         <p class="idadi">Jumla: ${wakulimaResult.rows.length}</p>
         <table>
-          <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
-          ${wakulimaRows || "<tr><td colspan='5'>Hakuna mkulima aliyesajiliwa bado.</td></tr>"}
+          <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Namba ya Simu</th><th>Hali</th><th></th></tr>
+          ${wakulimaRows || "<tr><td colspan='6'>Hakuna mkulima aliyesajiliwa bado.</td></tr>"}
         </table>
 
         <h2>Matangazo ya Mazao</h2>
         <p class="idadi">Jumla: ${matangazoResult.rows.length}</p>
         <table>
-          <tr><th>Zao</th><th>Idadi (Magunia)</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
-          ${matangazoRows || "<tr><td colspan='4'>Hakuna tangazo bado.</td></tr>"}
+          <tr><th>Zao</th><th>Idadi (Magunia)</th><th>Bei/Gunia</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
+          ${matangazoRows || "<tr><td colspan='5'>Hakuna tangazo bado.</td></tr>"}
+        </table>
+
+        <h2>Maombi ya Wanunuzi (Buyer Requests)</h2>
+        <p class="idadi">Jumla: ${requestsResult.rows.length}</p>
+        <table>
+          <tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
+          ${requestsRows || "<tr><td colspan='5'>Hakuna ombi bado.</td></tr>"}
         </table>
       </body>
       </html>
@@ -461,6 +602,14 @@ app.get("/admin", async (req, res) => {
   } catch (err) {
     res.status(500).send("Tatizo: " + err.message);
   }
+});
+
+app.post("/admin/thibitisha", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  await pool.query("UPDATE wakulima SET verified = TRUE WHERE id = $1", [req.body.id]);
+  res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
 });
 
 app.post("/admin/ongeza", async (req, res) => {
