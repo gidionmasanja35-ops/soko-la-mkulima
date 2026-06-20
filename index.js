@@ -127,8 +127,12 @@ app.get("/", (req, res) => {
   res.send("Soko la Mkulima USSD server inafanya kazi vizuri! (Toleo la Database)");
 });
 
-// ROUTE YA MUDA: kutengeneza majedwali ya database (tumia mara MOJA tu, kisha ifute)
+// ROUTE YA MUDA: kutengeneza majedwali ya database (sasa imefungwa na "siri")
+// Kuitumia: https://yoursite.onrender.com/setup-database?siri=SIRI_YAKO
 app.get("/setup-database", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi. Siri si sahihi.");
+  }
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS bei_mazao (
@@ -167,6 +171,89 @@ app.get("/setup-database", async (req, res) => {
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
   }
+});
+
+// ---- UKURASA WA ADMIN: kuona na kubadilisha bei bila kuandika code ----
+// Fungua: https://yoursite.onrender.com/admin?siri=SIRI_YAKO
+app.get("/admin", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi. Ongeza ?siri=SIRI_YAKO mwishoni mwa URL.");
+  }
+  try {
+    const result = await pool.query("SELECT * FROM bei_mazao ORDER BY zao, mkoa");
+    const safeSiri = encodeURIComponent(req.query.siri);
+
+    const rows = result.rows
+      .map(
+        (r) => `
+        <tr>
+          <td>${r.zao}</td>
+          <td>${r.mkoa}</td>
+          <td>${r.bei}</td>
+          <td>
+            <form method="POST" action="/admin/futa?siri=${safeSiri}" style="display:inline">
+              <input type="hidden" name="id" value="${r.id}">
+              <button type="submit">Futa</button>
+            </form>
+          </td>
+        </tr>`
+      )
+      .join("");
+
+    res.send(`
+      <html>
+      <head>
+        <title>Admin - Soko la Mkulima</title>
+        <style>
+          body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+          input { padding: 6px; margin-right: 5px; }
+          button { padding: 6px 12px; }
+        </style>
+      </head>
+      <body>
+        <h2>Simamia Bei za Mazao</h2>
+
+        <h3>Ongeza bei mpya</h3>
+        <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
+          <input name="zao" placeholder="Zao (mfano: mahindi)" required>
+          <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
+          <input name="bei" placeholder="Bei (mfano: 800)" type="number" required>
+          <button type="submit">Ongeza</button>
+        </form>
+
+        <h3>Bei zilizopo</h3>
+        <table>
+          <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>
+          ${rows}
+        </table>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).send("Tatizo: " + err.message);
+  }
+});
+
+app.post("/admin/ongeza", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  const { zao, mkoa, bei } = req.body;
+  await pool.query(
+    "INSERT INTO bei_mazao (zao, mkoa, bei) VALUES ($1, $2, $3)",
+    [zao.toLowerCase().trim(), mkoa.trim(), bei]
+  );
+  res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
+});
+
+app.post("/admin/futa", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  await pool.query("DELETE FROM bei_mazao WHERE id = $1", [req.body.id]);
+  res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
 });
 
 const PORT = process.env.PORT || 3000;
