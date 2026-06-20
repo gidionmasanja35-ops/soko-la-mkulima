@@ -14,6 +14,48 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// ---- KAZI YA KUTUMA SMS (Africa's Talking) ----
+// Inahitaji: AT_USERNAME na AT_API_KEY kwenye Environment Variables za Render
+async function tumaSMS(simu, ujumbe) {
+  try {
+    const username = process.env.AT_USERNAME; // "sandbox" ukiwa kwenye majaribio
+    const apiKey = process.env.AT_API_KEY;
+
+    if (!username || !apiKey) {
+      console.log("SMS haijatumwa - AT_USERNAME/AT_API_KEY hazijawekwa");
+      return;
+    }
+
+    // Sandbox na live zina anwani tofauti za API
+    const url =
+      username === "sandbox"
+        ? "https://api.sandbox.africastalking.com/version1/messaging"
+        : "https://api.africastalking.com/version1/messaging";
+
+    const body = new URLSearchParams({
+      username,
+      to: simu,
+      message: ujumbe,
+    });
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+        apiKey,
+      },
+      body: body.toString(),
+    });
+
+    const data = await res.json();
+    console.log("SMS imetumwa:", JSON.stringify(data));
+  } catch (err) {
+    // Tatizo la SMS halizuii mfumo mzima kuendelea kufanya kazi
+    console.error("Tatizo la kutuma SMS:", err.message);
+  }
+}
+
 // ---- ROUTE KUU YA USSD ----
 app.post("/ussd", async (req, res) => {
   const { sessionId, phoneNumber, text } = req.body;
@@ -95,6 +137,12 @@ app.post("/ussd", async (req, res) => {
           await pool.query(
             "INSERT INTO matangazo (zao, idadi, phone_number) VALUES ($1, $2, $3)",
             [zao, idadi, phoneNumber]
+          );
+
+          // Tuma SMS ya uthibitisho kwa mkulima
+          await tumaSMS(
+            phoneNumber,
+            `Tangazo lako la ${capitalize(zao)}\n${idadi}KG limepokelewa.`
           );
 
           response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi}) limepokelewa.`;
@@ -184,6 +232,14 @@ app.post("/ussd", async (req, res) => {
               })
               .join("\n");
             response = `END Wakulima wenye ${zao}:\n${orodha}`;
+
+            // Tuma SMS kwa kila mkulima aliyepatikana - mnunuzi ameonyesha nia
+            for (const r of matokeoResult.rows) {
+              await tumaSMS(
+                r.phone_number,
+                `Mnunuzi mpya ameonyesha\nnia ya kununua ${capitalize(zao)} yako.`
+              );
+            }
           }
         }
       } else {
@@ -210,13 +266,31 @@ app.get("/", (req, res) => {
   res.send("Soko la Mkulima USSD server inafanya kazi vizuri! (Toleo la Database)");
 });
 
-// ROUTE YA MUDA: kutengeneza majedwali ya database (sasa imefungwa na "siri")
+// ROUTE YA MUDA: kutengeneza majedwali ya database (sasa imefungwa na "siri" + inafanya kazi MARA MOJA tu)
 // Kuitumia: https://yoursite.onrender.com/setup-database?siri=SIRI_YAKO
 app.get("/setup-database", async (req, res) => {
   if (req.query.siri !== process.env.ADMIN_SECRET) {
     return res.status(403).send("Hairuhusiwi. Siri si sahihi.");
   }
   try {
+    // Jedwali dogo la kukumbuka kama setup imeshafanyika
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mfumo_setup (
+        jina VARCHAR(50) PRIMARY KEY,
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    // Angalia kama tayari imeshafanyika kabla
+    const ipo = await pool.query(
+      "SELECT 1 FROM mfumo_setup WHERE jina = 'database_setup'"
+    );
+    if (ipo.rows.length > 0) {
+      return res
+        .status(403)
+        .send("⚠️ Setup tayari ilishafanyika awali. Route hii sasa imefungwa kabisa.");
+    }
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS bei_mazao (
         id SERIAL PRIMARY KEY,
@@ -248,20 +322,30 @@ app.get("/setup-database", async (req, res) => {
       );
     `);
 
-    await pool.query("DELETE FROM bei_mazao");
-    await pool.query(`
-      INSERT INTO bei_mazao (zao, mkoa, bei) VALUES
-      ('mahindi', 'Dodoma', 800),
-      ('mahindi', 'Mbeya', 750),
-      ('mahindi', 'Morogoro', 820),
-      ('mpunga', 'Mbeya', 1200),
-      ('mpunga', 'Morogoro', 1300),
-      ('mpunga', 'Shinyanga', 1100),
-      ('maharage', 'Dodoma', 1800),
-      ('maharage', 'Songwe', 1700);
-    `);
+    // Weka bei za mfano TU kama bei_mazao ipo tupu (haifuti bei zilizopo)
+    const idadiBei = await pool.query("SELECT COUNT(*) FROM bei_mazao");
+    if (parseInt(idadiBei.rows[0].count) === 0) {
+      await pool.query(`
+        INSERT INTO bei_mazao (zao, mkoa, bei) VALUES
+        ('mahindi', 'Dodoma', 800),
+        ('mahindi', 'Mbeya', 750),
+        ('mahindi', 'Morogoro', 820),
+        ('mpunga', 'Mbeya', 1200),
+        ('mpunga', 'Morogoro', 1300),
+        ('mpunga', 'Shinyanga', 1100),
+        ('maharage', 'Dodoma', 1800),
+        ('maharage', 'Songwe', 1700);
+      `);
+    }
 
-    res.send("✅ Database imetengenezwa kikamilifu! Sasa unaweza kufuta route hii kwenye code.");
+    // Weka alama kuwa setup imekamilika - haitafanyika tena
+    await pool.query(
+      "INSERT INTO mfumo_setup (jina) VALUES ('database_setup')"
+    );
+
+    res.send(
+      "✅ Database imetengenezwa kikamilifu! Route hii sasa imefungwa kiotomatiki, haitafanya kazi tena."
+    );
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
   }
@@ -275,6 +359,12 @@ app.get("/admin", async (req, res) => {
   }
   try {
     const result = await pool.query("SELECT * FROM bei_mazao ORDER BY zao, mkoa");
+    const wakulimaResult = await pool.query(
+      "SELECT * FROM wakulima ORDER BY tarehe DESC"
+    );
+    const matangazoResult = await pool.query(
+      "SELECT * FROM matangazo ORDER BY tarehe DESC"
+    );
     const safeSiri = encodeURIComponent(req.query.siri);
 
     const rows = result.rows
@@ -294,19 +384,48 @@ app.get("/admin", async (req, res) => {
       )
       .join("");
 
+    const wakulimaRows = wakulimaResult.rows
+      .map(
+        (w) => `
+        <tr>
+          <td>${w.jina}</td>
+          <td>${w.mkoa}</td>
+          <td>${w.wilaya}</td>
+          <td>${w.phone_number}</td>
+          <td>${new Date(w.tarehe).toLocaleDateString("sw-TZ")}</td>
+        </tr>`
+      )
+      .join("");
+
+    const matangazoRows = matangazoResult.rows
+      .map(
+        (m) => `
+        <tr>
+          <td>${m.zao}</td>
+          <td>${m.idadi}</td>
+          <td>${m.phone_number}</td>
+          <td>${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</td>
+        </tr>`
+      )
+      .join("");
+
     res.send(`
       <html>
       <head>
         <title>Admin - Soko la Mkulima</title>
         <style>
-          body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
+          body { font-family: sans-serif; max-width: 900px; margin: 40px auto; }
           table { width: 100%; border-collapse: collapse; margin-top: 20px; }
           th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
           input { padding: 6px; margin-right: 5px; }
           button { padding: 6px 12px; }
+          h2 { margin-top: 50px; }
+          .idadi { color: #666; font-size: 14px; margin-top: -10px; }
         </style>
       </head>
       <body>
+        <h1>Admin - Soko la Mkulima</h1>
+
         <h2>Simamia Bei za Mazao</h2>
 
         <h3>Ongeza bei mpya</h3>
@@ -321,6 +440,20 @@ app.get("/admin", async (req, res) => {
         <table>
           <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>
           ${rows}
+        </table>
+
+        <h2>Wakulima Waliosajiliwa</h2>
+        <p class="idadi">Jumla: ${wakulimaResult.rows.length}</p>
+        <table>
+          <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
+          ${wakulimaRows || "<tr><td colspan='5'>Hakuna mkulima aliyesajiliwa bado.</td></tr>"}
+        </table>
+
+        <h2>Matangazo ya Mazao</h2>
+        <p class="idadi">Jumla: ${matangazoResult.rows.length}</p>
+        <table>
+          <tr><th>Zao</th><th>Idadi (Magunia)</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
+          ${matangazoRows || "<tr><td colspan='4'>Hakuna tangazo bado.</td></tr>"}
         </table>
       </body>
       </html>
