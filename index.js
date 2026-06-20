@@ -24,9 +24,10 @@ app.post("/ussd", async (req, res) => {
     if (text === "" || text === undefined) {
       // HATUA YA 0: Menyu kuu
       response = `CON Karibu Soko la Mkulima
-1. Angalia bei ya zao
-2. Tangaza mazao yako
-3. Tazama matangazo`;
+1. Angalia Bei za Zao
+2. Tangaza Mazao Yako
+3. Tazama Matangazo
+4. Jisajili`;
     } else if (majibu[0] === "1") {
       // ANGALIA BEI
       if (majibu.length === 1) {
@@ -106,6 +107,26 @@ app.post("/ussd", async (req, res) => {
           .join("\n");
         response = `END Matangazo ya hivi karibuni:\n${orodha}`;
       }
+    } else if (majibu[0] === "4") {
+      // JISAJILI - usajili wa mkulima
+      if (majibu.length === 1) {
+        response = "CON Weka Jina Lako";
+      } else if (majibu.length === 2) {
+        response = "CON Mkoa wako";
+      } else if (majibu.length === 3) {
+        response = "CON Wilaya yako";
+      } else if (majibu.length === 4) {
+        const jina = majibu[1];
+        const mkoa = majibu[2];
+        const wilaya = majibu[3];
+
+        await pool.query(
+          "INSERT INTO wakulima (jina, mkoa, wilaya, phone_number) VALUES ($1, $2, $3, $4)",
+          [jina, mkoa, wilaya, phoneNumber]
+        );
+
+        response = "END Umesajiliwa Kikamilifu";
+      }
     } else {
       response = "END Chaguo si sahihi. Jaribu tena.";
     }
@@ -149,6 +170,17 @@ app.get("/setup-database", async (req, res) => {
         id SERIAL PRIMARY KEY,
         zao VARCHAR(100) NOT NULL,
         idadi VARCHAR(50) NOT NULL,
+        phone_number VARCHAR(20) NOT NULL,
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wakulima (
+        id SERIAL PRIMARY KEY,
+        jina VARCHAR(100) NOT NULL,
+        mkoa VARCHAR(50) NOT NULL,
+        wilaya VARCHAR(50) NOT NULL,
         phone_number VARCHAR(20) NOT NULL,
         tarehe TIMESTAMP DEFAULT NOW()
       );
