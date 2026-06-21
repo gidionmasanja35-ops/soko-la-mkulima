@@ -280,9 +280,12 @@ app.post("/ussd", async (req, res) => {
             response = "END Chaguo si sahihi. Jaribu tena.";
           } else {
             const matokeoResult = await pool.query(
-              `SELECT m.idadi, m.bei, m.phone_number, w.jina, w.mkoa, w.wilaya, w.verified
+              `SELECT m.idadi, m.bei, m.phone_number,
+                 (SELECT jina FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY w.tarehe ASC LIMIT 1) AS jina,
+                 (SELECT mkoa FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY w.tarehe ASC LIMIT 1) AS mkoa,
+                 (SELECT wilaya FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY w.tarehe ASC LIMIT 1) AS wilaya,
+                 (SELECT verified FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY w.tarehe ASC LIMIT 1) AS verified
                FROM matangazo m
-               LEFT JOIN wakulima w ON m.phone_number = w.phone_number
                WHERE m.zao = $1 AND m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
                ORDER BY m.tarehe DESC
                LIMIT 5`,
