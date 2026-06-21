@@ -75,7 +75,8 @@ app.post("/ussd", async (req, res) => {
 1. Angalia Bei za Zao
 2. Tangaza Mazao Yako
 3. Tazama Matangazo
-4. Jisajili`;
+4. Jisajili
+5. Maombi ya Ununuzi`;
       } else if (majibu[1] === "1") {
         // ANGALIA BEI
         if (majibu.length === 2) {
@@ -192,6 +193,57 @@ app.post("/ussd", async (req, res) => {
             response = "END Umesajiliwa Kikamilifu";
           }
         }
+      } else if (majibu[1] === "5") {
+        // MAOMBI YA UNUNUZI - mkulima anakubali/anakataa maombi
+        const maombiResult = await pool.query(
+          "SELECT * FROM purchase_requests WHERE farmer_phone = $1 AND status = 'pending' ORDER BY tarehe DESC LIMIT 5",
+          [phoneNumber]
+        );
+
+        if (majibu.length === 2) {
+          if (maombiResult.rows.length === 0) {
+            response = "END Huna maombi mapya ya ununuzi kwa sasa.";
+          } else {
+            const orodha = maombiResult.rows
+              .map((m, i) => `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`)
+              .join("\n");
+            response = `CON Maombi ya Ununuzi:\n${orodha}\nChagua namba:`;
+          }
+        } else if (majibu.length === 3) {
+          const ombiTeule = maombiResult.rows[parseInt(majibu[2]) - 1];
+          if (!ombiTeule) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            response = `CON ${capitalize(ombiTeule.zao)} - magunia ${ombiTeule.idadi || "?"}\n1. Kubali\n2. Kataa`;
+          }
+        } else if (majibu.length === 4) {
+          const ombiTeule = maombiResult.rows[parseInt(majibu[2]) - 1];
+          if (!ombiTeule) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else if (majibu[3] === "1") {
+            await pool.query(
+              "UPDATE purchase_requests SET status = 'accepted' WHERE id = $1",
+              [ombiTeule.id]
+            );
+            await tumaSMS(
+              ombiTeule.buyer_phone,
+              `Mkulima amekubali ombi lako\nla ${capitalize(ombiTeule.zao)}.\nMpigie: ${phoneNumber}`
+            );
+            response = "END Umekubali ombi. Mnunuzi amejulishwa.";
+          } else if (majibu[3] === "2") {
+            await pool.query(
+              "UPDATE purchase_requests SET status = 'rejected' WHERE id = $1",
+              [ombiTeule.id]
+            );
+            await tumaSMS(
+              ombiTeule.buyer_phone,
+              `Samahani, mkulima amekataa ombi lako\nla ${capitalize(ombiTeule.zao)}.`
+            );
+            response = "END Umekataa ombi. Mnunuzi amejulishwa.";
+          } else {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          }
+        }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
       }
@@ -241,24 +293,49 @@ app.post("/ussd", async (req, res) => {
               response = `END Hakuna mkulima mwenye ${zao} kwa sasa.`;
             } else {
               const orodha = matokeoResult.rows
-                .map((r) => {
+                .map((r, i) => {
                   const eneo = r.mkoa ? `${r.mkoa}, ${r.wilaya}` : "Eneo halijulikani";
                   const jina = r.jina || "Mkulima";
                   const tiki = r.verified ? " ✓Verified" : "";
                   const beiTxt = r.bei ? ` @ TZS ${r.bei}` : "";
-                  return `${jina}${tiki} - magunia ${r.idadi}${beiTxt} - ${eneo} - ${r.phone_number}`;
+                  return `${i + 1}. ${jina}${tiki} - magunia ${r.idadi}${beiTxt} - ${eneo}`;
                 })
                 .join("\n");
-              response = `END Wakulima wenye ${zao}:\n${orodha}`;
-
-              // Tuma SMS kwa kila mkulima aliyepatikana - mnunuzi ameonyesha nia
-              for (const r of matokeoResult.rows) {
-                await tumaSMS(
-                  r.phone_number,
-                  `Mnunuzi mpya ameonyesha\nnia ya kununua ${capitalize(zao)} yako.`
-                );
-              }
+              response = `CON Wakulima wenye ${zao}:\n${orodha}\nChagua namba kutuma ombi:`;
             }
+          }
+        } else if (majibu.length === 4) {
+          // Mnunuzi amechagua mkulima maalum - tuma ombi rasmi la ununuzi
+          const zaoResult = await pool.query(
+            "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY zao"
+          );
+          const mazao = zaoResult.rows.map((r) => r.zao);
+          const zao = mazao[parseInt(majibu[2]) - 1];
+
+          const matokeoResult = await pool.query(
+            `SELECT m.idadi, m.phone_number
+             FROM matangazo m
+             WHERE m.zao = $1 AND m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+             ORDER BY m.tarehe DESC
+             LIMIT 5`,
+            [zao]
+          );
+          const mkulimaTeule = matokeoResult.rows[parseInt(majibu[3]) - 1];
+
+          if (!mkulimaTeule) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            await pool.query(
+              "INSERT INTO purchase_requests (buyer_phone, farmer_phone, zao, idadi) VALUES ($1, $2, $3, $4)",
+              [phoneNumber, mkulimaTeule.phone_number, zao, mkulimaTeule.idadi]
+            );
+
+            await tumaSMS(
+              mkulimaTeule.phone_number,
+              `Mnunuzi anataka kununua\n${capitalize(zao)} yako (magunia ${mkulimaTeule.idadi}).\nFungua *384*26213# kukubali/kukataa.`
+            );
+
+            response = "END Ombi lako limetumwa kwa mkulima! Utajulishwa akijibu.";
           }
         } else {
           response = "END Chaguo si sahihi. Jaribu tena.";
@@ -463,7 +540,18 @@ app.get("/migrate-v2", async (req, res) => {
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
-    res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests, wanunuzi) zimeongezwa.");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS purchase_requests (
+        id SERIAL PRIMARY KEY,
+        buyer_phone VARCHAR(20) NOT NULL,
+        farmer_phone VARCHAR(20) NOT NULL,
+        zao VARCHAR(100) NOT NULL,
+        idadi VARCHAR(50),
+        status VARCHAR(20) DEFAULT 'pending',
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests, wanunuzi, purchase_requests) zimeongezwa.");
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
   }
