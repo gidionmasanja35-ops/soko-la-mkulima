@@ -486,49 +486,104 @@ app.get("/admin", async (req, res) => {
     const requestsResult = await pool.query(
       "SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 50"
     );
-    const wanunuziResult = await pool.query(
-      "SELECT COUNT(*) FROM wanunuzi"
-    );
+    const wanunuziResult = await pool.query("SELECT COUNT(*) FROM wanunuzi");
     const mahitajiResult = await pool.query(`
       SELECT zao, COUNT(*) as idadi
       FROM buyer_requests
       GROUP BY zao
       ORDER BY idadi DESC
-      LIMIT 10
+      LIMIT 6
     `);
     const mazaoAsilimiaResult = await pool.query(`
       SELECT zao, COUNT(*) as idadi
       FROM matangazo
       GROUP BY zao
       ORDER BY idadi DESC
+      LIMIT 6
     `);
-    const safeSiri = encodeURIComponent(req.query.siri);
+    // Mwenendo wa matangazo siku 7 zilizopita (kwa chati ya mstari)
+    const wikiResult = await pool.query(`
+      SELECT TO_CHAR(d.siku, 'DY') AS siku, COUNT(m.id) AS idadi
+      FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day') d(siku)
+      LEFT JOIN matangazo m ON DATE(m.tarehe) = d.siku
+      GROUP BY d.siku
+      ORDER BY d.siku
+    `);
 
+    const safeSiri = encodeURIComponent(req.query.siri);
     const jumlaMatangazo = matangazoResult.rows.length;
-    const asilimiaRows = mazaoAsilimiaResult.rows
-      .map((r) => {
-        const asilimia = jumlaMatangazo
-          ? Math.round((r.idadi / jumlaMatangazo) * 100)
-          : 0;
-        return `<li>${capitalize(r.zao)}: ${asilimia}% (${r.idadi})</li>`;
+
+    // ---- Rangi za chati (zinazoendana na sidebar ya kijani) ----
+    const rangiPalette = ["#2E8B57", "#E67E22", "#3B82C4", "#8B5FBF", "#D7263D", "#1B5E3F"];
+
+    // ---- Donut chart ya "Mazao Yanayouzwa Zaidi" (CSS conic-gradient) ----
+    let kasoro = 0;
+    const donutSegments = mazaoAsilimiaResult.rows.map((r, i) => {
+      const asilimia = jumlaMatangazo ? (r.idadi / jumlaMatangazo) * 100 : 0;
+      const mwanzo = kasoro;
+      kasoro += asilimia;
+      return { zao: r.zao, idadi: r.idadi, asilimia, mwanzo, mwisho: kasoro, rangi: rangiPalette[i % rangiPalette.length] };
+    });
+    const donutGradient = donutSegments.length
+      ? donutSegments
+          .map((s) => `${s.rangi} ${s.mwanzo}% ${s.mwisho}%`)
+          .join(", ")
+      : "#e5e7eb 0% 100%";
+    const donutLegend = donutSegments
+      .map(
+        (s) => `<div class="legend-item"><span class="dot" style="background:${s.rangi}"></span>${capitalize(s.zao)} <b>${Math.round(s.asilimia)}%</b></div>`
+      )
+      .join("") || "<div class='legend-item'>Hakuna data bado</div>";
+
+    // ---- Bar chart ya "Mazao Yanayohitajika Zaidi" ----
+    const idadiKubwaMahitaji = Math.max(1, ...mahitajiResult.rows.map((r) => parseInt(r.idadi)));
+    const mahitajiBars = mahitajiResult.rows
+      .map((r, i) => {
+        const upana = Math.round((r.idadi / idadiKubwaMahitaji) * 100);
+        return `
+        <div class="bar-row">
+          <span class="bar-label">${capitalize(r.zao)}</span>
+          <div class="bar-track"><div class="bar-fill" style="width:${upana}%; background:${rangiPalette[i % rangiPalette.length]}"></div></div>
+          <span class="bar-value">${r.idadi}</span>
+        </div>`;
+      })
+      .join("") || "<p class='hakuna'>Hakuna maombi bado.</p>";
+
+    // ---- Line chart ya matangazo ya wiki (SVG safi) ----
+    const wikiIdadi = wikiResult.rows.map((r) => parseInt(r.idadi));
+    const wikiMax = Math.max(1, ...wikiIdadi);
+    const chartW = 520, chartH = 160, pad = 30;
+    const stepX = (chartW - pad * 2) / (wikiIdadi.length - 1 || 1);
+    const points = wikiIdadi
+      .map((v, i) => {
+        const x = pad + i * stepX;
+        const y = chartH - pad - (v / wikiMax) * (chartH - pad * 2);
+        return `${x},${y}`;
+      })
+      .join(" ");
+    const dots = wikiIdadi
+      .map((v, i) => {
+        const x = pad + i * stepX;
+        const y = chartH - pad - (v / wikiMax) * (chartH - pad * 2);
+        return `<circle cx="${x}" cy="${y}" r="4" fill="#2E8B57" />`;
       })
       .join("");
-
-    const mahitajiRows = mahitajiResult.rows
-      .map((r) => `<li>${capitalize(r.zao)}: ${r.idadi} maombi</li>`)
+    const wikiLabels = wikiResult.rows
+      .map((r) => `<span>${r.siku.trim()}</span>`)
       .join("");
 
+    // ---- Majedwali ----
     const rows = result.rows
       .map(
         (r) => `
         <tr>
-          <td>${r.zao}</td>
+          <td>${capitalize(r.zao)}</td>
           <td>${r.mkoa}</td>
-          <td>${r.bei}</td>
+          <td>${Number(r.bei).toLocaleString()}</td>
           <td>
             <form method="POST" action="/admin/futa?siri=${safeSiri}" style="display:inline">
               <input type="hidden" name="id" value="${r.id}">
-              <button type="submit">Futa</button>
+              <button class="btn-futa" type="submit">Futa</button>
             </form>
           </td>
         </tr>`
@@ -543,14 +598,14 @@ app.get("/admin", async (req, res) => {
           <td>${w.mkoa}</td>
           <td>${w.wilaya}</td>
           <td>${w.phone_number}</td>
-          <td>${w.verified ? "✓ Verified" : "Hajathibitishwa"}</td>
+          <td>${w.verified ? "<span class='badge badge-ok'>✓ Verified</span>" : "<span class='badge badge-pending'>Hajathibitishwa</span>"}</td>
           <td>
             ${
               w.verified
                 ? ""
                 : `<form method="POST" action="/admin/thibitisha?siri=${safeSiri}" style="display:inline">
                      <input type="hidden" name="id" value="${w.id}">
-                     <button type="submit">Thibitisha</button>
+                     <button class="btn-thibitisha" type="submit">Thibitisha</button>
                    </form>`
             }
           </td>
@@ -559,12 +614,13 @@ app.get("/admin", async (req, res) => {
       .join("");
 
     const matangazoRows = matangazoResult.rows
+      .slice(0, 8)
       .map(
         (m) => `
         <tr>
-          <td>${m.zao}</td>
+          <td><span class="crop-dot"></span>${capitalize(m.zao)}</td>
           <td>${m.idadi}</td>
-          <td>${m.bei || "-"}</td>
+          <td>${m.bei ? Number(m.bei).toLocaleString() : "-"}</td>
           <td>${m.phone_number}</td>
           <td>${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</td>
         </tr>`
@@ -572,87 +628,257 @@ app.get("/admin", async (req, res) => {
       .join("");
 
     const requestsRows = requestsResult.rows
+      .slice(0, 8)
       .map(
         (b) => `
         <tr>
-          <td>${b.zao}</td>
+          <td>${capitalize(b.zao)}</td>
           <td>${b.idadi}</td>
           <td>${b.mkoa}</td>
-          <td>${b.phone_number}</td>
           <td>${new Date(b.tarehe).toLocaleDateString("sw-TZ")}</td>
+          <td><span class="badge badge-pending">Pending</span></td>
         </tr>`
       )
       .join("");
 
     res.send(`
-      <html>
+      <!DOCTYPE html>
+      <html lang="sw">
       <head>
-        <title>Admin - Soko la Mkulima</title>
-        <style>
-          body { font-family: sans-serif; max-width: 900px; margin: 40px auto; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-          input { padding: 6px; margin-right: 5px; }
-          button { padding: 6px 12px; }
-          h2 { margin-top: 50px; }
-          .idadi { color: #666; font-size: 14px; margin-top: -10px; }
-          .takwimu { display: flex; gap: 30px; background: #f5f5f5; padding: 20px; border-radius: 8px; }
-          .takwimu div { font-size: 28px; font-weight: bold; }
-          .takwimu span { display: block; font-size: 14px; font-weight: normal; color: #555; }
-        </style>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Soko la Mkulima — Dashibodi</title>
+      <style>
+        :root {
+          --kijani-giza: #14432F;
+          --kijani: #2E8B57;
+          --kijani-mwanga: #E8F5EE;
+          --bg: #F2F5F4;
+          --kadi: #FFFFFF;
+          --maandishi: #1F2A24;
+          --maandishi-pili: #6B7670;
+          --mpaka: #E6EAE8;
+          --bluu: #3B82C4;
+          --chungwa: #E67E22;
+          --zambarau: #8B5FBF;
+        }
+        * { box-sizing: border-box; }
+        body {
+          margin: 0;
+          font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+          background: var(--bg);
+          color: var(--maandishi);
+          display: flex;
+          min-height: 100vh;
+        }
+
+        /* ---- SIDEBAR ---- */
+        .sidebar {
+          width: 240px;
+          background: var(--kijani-giza);
+          color: #fff;
+          padding: 24px 16px;
+          flex-shrink: 0;
+        }
+        .brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 24px; border-bottom: 1px solid rgba(255,255,255,0.12); margin-bottom: 20px; }
+        .brand .leaf { font-size: 26px; }
+        .brand h1 { font-size: 16px; margin: 0; line-height: 1.2; }
+        .brand p { font-size: 11px; margin: 2px 0 0; color: #A9C9B8; }
+        .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: #CFE3D8; font-size: 14px; margin-bottom: 4px; }
+        .nav-item.active { background: var(--kijani); color: #fff; font-weight: 600; }
+        .sidebar-note { margin-top: 30px; background: rgba(255,255,255,0.07); border-radius: 10px; padding: 16px; font-size: 12px; line-height: 1.5; color: #CFE3D8; }
+
+        /* ---- MAIN ---- */
+        .main { flex: 1; padding: 28px 32px; max-width: 1280px; }
+        .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+        .topbar h2 { margin: 0; font-size: 24px; }
+        .topbar p { margin: 4px 0 0; color: var(--maandishi-pili); font-size: 14px; }
+
+        /* ---- STAT CARDS ---- */
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 24px; }
+        .stat-card { background: var(--kadi); border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid var(--mpaka); }
+        .stat-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #fff; margin-bottom: 10px; }
+        .stat-card .num { font-size: 26px; font-weight: 700; }
+        .stat-card .label { font-size: 13px; color: var(--maandishi-pili); }
+
+        /* ---- PANELS ---- */
+        .panels { display: grid; grid-template-columns: 1.1fr 1.1fr 1fr; gap: 18px; margin-bottom: 24px; }
+        .panel { background: var(--kadi); border-radius: 14px; padding: 20px; border: 1px solid var(--mpaka); }
+        .panel h3 { margin: 0 0 14px; font-size: 15px; }
+
+        /* Donut */
+        .donut-wrap { display: flex; align-items: center; gap: 18px; }
+        .donut { width: 130px; height: 130px; border-radius: 50%; flex-shrink: 0; }
+        .donut::after { content: ""; display: block; width: 56px; height: 56px; background: var(--kadi); border-radius: 50%; margin: 37px; }
+        .donut-outer { position: relative; width: 130px; height: 130px; }
+        .legend-item { font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--maandishi-pili); }
+        .legend-item b { color: var(--maandishi); margin-left: auto; }
+        .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+        /* Line chart */
+        .wiki-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--maandishi-pili); margin-top: 4px; padding: 0 28px; }
+
+        /* Bar chart */
+        .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .bar-label { width: 70px; font-size: 13px; flex-shrink: 0; }
+        .bar-track { flex: 1; background: var(--kijani-mwanga); border-radius: 6px; height: 10px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 6px; }
+        .bar-value { font-size: 13px; color: var(--maandishi-pili); width: 28px; text-align: right; }
+        .hakuna { color: var(--maandishi-pili); font-size: 13px; }
+
+        /* ---- TABLES ---- */
+        .table-section { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; font-size: 12px; color: var(--maandishi-pili); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--mpaka); }
+        td { padding: 10px; font-size: 13px; border-bottom: 1px solid var(--mpaka); }
+        .crop-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--kijani); display: inline-block; margin-right: 8px; }
+        .badge { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .badge-ok { background: #E1F5EC; color: #1B5E3F; }
+        .badge-pending { background: #FDF2E1; color: #B5760C; }
+        .btn-thibitisha { background: var(--kijani); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+        .btn-futa { background: #FBE7E9; color: #C0392B; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+
+        /* ---- FORM SECTION ---- */
+        .form-panel { background: var(--kadi); border-radius: 14px; padding: 20px; border: 1px solid var(--mpaka); margin-bottom: 24px; }
+        .form-panel h3 { margin: 0 0 14px; font-size: 15px; }
+        .form-panel form { display: flex; gap: 10px; flex-wrap: wrap; }
+        .form-panel input { padding: 9px 12px; border: 1px solid var(--mpaka); border-radius: 8px; font-size: 13px; flex: 1; min-width: 140px; }
+        .form-panel button { background: var(--kijani); color: #fff; border: none; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; }
+
+        h2.section-title { font-size: 18px; margin: 30px 0 14px; }
+
+        @media (max-width: 1000px) {
+          .stats, .panels, .table-section { grid-template-columns: 1fr; }
+          .sidebar { display: none; }
+        }
+      </style>
       </head>
       <body>
-        <h1>Admin - Soko la Mkulima</h1>
 
-        <h2>Takwimu za Soko</h2>
-        <div class="takwimu">
-          <div>${wakulimaResult.rows.length}<span>Wakulima</span></div>
-          <div>${wanunuziResult.rows[0].count}<span>Wanunuzi</span></div>
-          <div>${matangazoResult.rows.length}<span>Matangazo</span></div>
-          <div>${requestsResult.rows.length}<span>Maombi ya Wanunuzi</span></div>
-        </div>
-        <h3>Mazao Yanayouzwa Zaidi (na Wakulima)</h3>
-        <ul>${asilimiaRows || "<li>Hakuna data bado.</li>"}</ul>
+        <aside class="sidebar">
+          <div class="brand">
+            <span class="leaf">🌱</span>
+            <div>
+              <h1>SOKO LA MKULIMA</h1>
+              <p>Soko la Mazao Tanzania</p>
+            </div>
+          </div>
+          <div class="nav-item active">📊 Dashibodi</div>
+          <div class="nav-item">👨‍🌾 Wakulima (${wakulimaResult.rows.length})</div>
+          <div class="nav-item">🛒 Wanunuzi (${wanunuziResult.rows[0].count})</div>
+          <div class="nav-item">📢 Matangazo (${matangazoResult.rows.length})</div>
+          <div class="nav-item">💬 Maombi ya Wanunuzi (${requestsResult.rows.length})</div>
+          <div class="nav-item">💰 Bei za Mazao</div>
 
-        <h3>Mazao Yanayohitajika Zaidi (na Wanunuzi)</h3>
-        <ul>${mahitajiRows || "<li>Hakuna data bado.</li>"}</ul>
+          <div class="sidebar-note">
+            <b>Soko la Mkulima</b><br>
+            Kuunganisha wakulima na wanunuzi kwa maendeleo ya kilimo.
+          </div>
+        </aside>
 
-        <h2>Simamia Bei za Mazao</h2>
+        <main class="main">
+          <div class="topbar">
+            <div>
+              <h2>Dashibodi</h2>
+              <p>Karibu kwenye mfumo wa Soko la Mkulima</p>
+            </div>
+          </div>
 
-        <h3>Ongeza bei mpya</h3>
-        <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
-          <input name="zao" placeholder="Zao (mfano: mahindi)" required>
-          <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
-          <input name="bei" placeholder="Bei (mfano: 800)" type="number" required>
-          <button type="submit">Ongeza</button>
-        </form>
+          <!-- STAT CARDS -->
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-icon" style="background:var(--kijani)">👨‍🌾</div>
+              <div class="num">${wakulimaResult.rows.length}</div>
+              <div class="label">Wakulima</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background:var(--bluu)">📢</div>
+              <div class="num">${matangazoResult.rows.length}</div>
+              <div class="label">Matangazo</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background:var(--chungwa)">🛒</div>
+              <div class="num">${wanunuziResult.rows[0].count}</div>
+              <div class="label">Wanunuzi</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background:var(--zambarau)">💬</div>
+              <div class="num">${requestsResult.rows.length}</div>
+              <div class="label">Maombi ya Wanunuzi</div>
+            </div>
+          </div>
 
-        <h3>Bei zilizopo</h3>
-        <table>
-          <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>
-          ${rows}
-        </table>
+          <!-- CHARTS -->
+          <div class="panels">
+            <div class="panel">
+              <h3>Mazao Yanayouzwa Zaidi</h3>
+              <div class="donut-wrap">
+                <div class="donut" style="background: conic-gradient(${donutGradient})"></div>
+                <div>${donutLegend}</div>
+              </div>
+            </div>
 
-        <h2>Wakulima Waliosajiliwa</h2>
-        <p class="idadi">Jumla: ${wakulimaResult.rows.length}</p>
-        <table>
-          <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Namba ya Simu</th><th>Hali</th><th></th></tr>
-          ${wakulimaRows || "<tr><td colspan='6'>Hakuna mkulima aliyesajiliwa bado.</td></tr>"}
-        </table>
+            <div class="panel">
+              <h3>Matangazo - Siku 7 Zilizopita</h3>
+              <svg viewBox="0 0 ${chartW} ${chartH}" width="100%" height="140">
+                <polyline points="${points}" fill="none" stroke="#2E8B57" stroke-width="2.5" />
+                ${dots}
+              </svg>
+              <div class="wiki-labels">${wikiLabels}</div>
+            </div>
 
-        <h2>Matangazo ya Mazao</h2>
-        <p class="idadi">Jumla: ${matangazoResult.rows.length}</p>
-        <table>
-          <tr><th>Zao</th><th>Idadi (Magunia)</th><th>Bei/Gunia</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
-          ${matangazoRows || "<tr><td colspan='5'>Hakuna tangazo bado.</td></tr>"}
-        </table>
+            <div class="panel">
+              <h3>Mahitaji Makubwa (Wanunuzi)</h3>
+              ${mahitajiBars}
+            </div>
+          </div>
 
-        <h2>Maombi ya Wanunuzi (Buyer Requests)</h2>
-        <p class="idadi">Jumla: ${requestsResult.rows.length}</p>
-        <table>
-          <tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Namba ya Simu</th><th>Tarehe</th></tr>
-          ${requestsRows || "<tr><td colspan='5'>Hakuna ombi bado.</td></tr>"}
-        </table>
+          <!-- BEI FORM -->
+          <div class="form-panel">
+            <h3>Ongeza Bei Mpya</h3>
+            <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
+              <input name="zao" placeholder="Zao (mfano: mahindi)" required>
+              <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
+              <input name="bei" placeholder="Bei kwa kilo (TZS)" type="number" required>
+              <button type="submit">+ Ongeza Bei</button>
+            </form>
+          </div>
+
+          <!-- TABLES -->
+          <div class="table-section">
+            <div class="panel">
+              <h3>Matangazo ya Hivi Karibuni</h3>
+              <table>
+                <tr><th>Zao</th><th>Magunia</th><th>Bei/Gunia</th><th>Simu</th><th>Tarehe</th></tr>
+                ${matangazoRows || "<tr><td colspan='5'>Hakuna tangazo bado.</td></tr>"}
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Maombi ya Wanunuzi ya Hivi Karibuni</h3>
+              <table>
+                <tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Tarehe</th><th>Hali</th></tr>
+                ${requestsRows || "<tr><td colspan='5'>Hakuna ombi bado.</td></tr>"}
+              </table>
+            </div>
+          </div>
+
+          <h2 class="section-title">Bei za Mazao Zilizopo</h2>
+          <div class="panel">
+            <table>
+              <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>
+              ${rows || "<tr><td colspan='4'>Hakuna bei bado.</td></tr>"}
+            </table>
+          </div>
+
+          <h2 class="section-title">Wakulima Waliosajiliwa</h2>
+          <div class="panel">
+            <table>
+              <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Simu</th><th>Hali</th><th></th></tr>
+              ${wakulimaRows || "<tr><td colspan='6'>Hakuna mkulima aliyesajiliwa bado.</td></tr>"}
+            </table>
+          </div>
+
+        </main>
       </body>
       </html>
     `);
