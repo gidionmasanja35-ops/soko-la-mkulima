@@ -76,7 +76,8 @@ app.post("/ussd", async (req, res) => {
 2. Tangaza Mazao Yako
 3. Tazama Matangazo
 4. Jisajili
-5. Maombi ya Ununuzi`;
+5. Maombi ya Ununuzi
+6. Wasifu Wangu`;
       } else if (majibu[1] === "1") {
         // ANGALIA BEI
         if (majibu.length === 2) {
@@ -244,11 +245,33 @@ app.post("/ussd", async (req, res) => {
             response = "END Chaguo si sahihi. Jaribu tena.";
           }
         }
+      } else if (majibu[1] === "6") {
+        // WASIFU WANGU - mkulima anaona taarifa zake
+        const wasifu = await pool.query(
+          "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1",
+          [phoneNumber]
+        );
+        const matangazoYake = await pool.query(
+          "SELECT COUNT(*) FROM matangazo WHERE phone_number = $1 AND active = TRUE",
+          [phoneNumber]
+        );
+        const maombiYake = await pool.query(
+          "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1",
+          [phoneNumber]
+        );
+
+        if (wasifu.rows.length === 0) {
+          response = `END Hujasajiliwa bado.\nRudi kwenye menyu, chagua:\n4. Jisajili`;
+        } else {
+          const w = wasifu.rows[0];
+          const hali = w.verified ? "✓ Imethibitishwa" : "Haijahthibitishwa";
+          const matangazoIdadi = matangazoYake.rows[0].count;
+          const maombiIdadi = maombiYake.rows[0].count;
+          response = `END Wasifu Wako:\nJina: ${w.jina}\nMkoa: ${w.mkoa}\nWilaya: ${w.wilaya}\nMatangazo: ${matangazoIdadi}\nMaombi: ${maombiIdadi}\nHali: ${hali}\nAnwani: soko-la-mkulima.onrender.com/mkulima/${phoneNumber}`;
+        }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
       }
-    } else if (majibu[0] === "2") {
-      // ============ UPANDE WA MNUNUZI ============
       if (majibu.length === 1) {
         response = `CON Karibu Mnunuzi
 1. Tafuta Mazao
@@ -509,6 +532,96 @@ app.get("/setup-database", async (req, res) => {
     );
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
+  }
+});
+
+// ---- UKURASA WA WASIFU WA MKULIMA (/mkulima/:simu) ----
+app.get("/mkulima/:simu", async (req, res) => {
+  try {
+    const simu = decodeURIComponent(req.params.simu);
+    const wasifu = await pool.query(
+      "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1",
+      [simu]
+    );
+    if (wasifu.rows.length === 0) {
+      return res.status(404).send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px"><h2>Mkulima Hapatikani</h2><p>Namba hii haijasajiliwa.</p></body></html>`);
+    }
+    const w = wasifu.rows[0];
+    const matangazoResult = await pool.query(
+      "SELECT * FROM matangazo WHERE phone_number = $1 AND active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY tarehe DESC",
+      [simu]
+    );
+    const maombiResult = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1", [simu]
+    );
+    const maombiKubaliwa = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1 AND status = 'accepted'", [simu]
+    );
+    const matangazoRows = matangazoResult.rows.map((m) =>
+      `<div class="listing-card"><div class="crop-icon">🌾</div><div>
+        <div class="crop-name">${capitalize(m.zao)}</div>
+        <div class="crop-details">Magunia ${m.idadi}${m.bei ? ` • TZS ${Number(m.bei).toLocaleString()} / gunia` : ""}</div>
+        <div class="crop-date">${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</div>
+      </div></div>`
+    ).join("") || `<p style="color:#6B7670">Hakuna matangazo ya sasa.</p>`;
+
+    res.send(`<!DOCTYPE html><html lang="sw"><head>
+      <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${w.jina} — Soko la Mkulima</title>
+      <style>
+        :root{--kijani:#2E8B57;--kijani-giza:#14432F;--kijani-mwanga:#E8F5EE;--bg:#F2F5F4}
+        *{box-sizing:border-box}
+        body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:#1F2A24}
+        .header{background:var(--kijani-giza);color:#fff;padding:16px 24px;display:flex;align-items:center;gap:12px}
+        .header h1{margin:0;font-size:18px}.header p{margin:2px 0 0;font-size:12px;color:#A9C9B8}
+        .container{max-width:700px;margin:32px auto;padding:0 16px}
+        .card{background:#fff;border-radius:16px;padding:28px;margin-bottom:20px;border:1px solid #E6EAE8;box-shadow:0 2px 8px rgba(0,0,0,0.05)}
+        .profile-top{display:flex;align-items:center;gap:20px;margin-bottom:20px}
+        .avatar{width:72px;height:72px;border-radius:50%;background:var(--kijani-mwanga);display:flex;align-items:center;justify-content:center;font-size:32px;flex-shrink:0}
+        .profile-name{font-size:22px;font-weight:700;margin:0 0 4px}
+        .profile-location{color:#6B7670;font-size:14px}
+        .badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-top:8px}
+        .badge-ok{background:#E1F5EC;color:#1B5E3F}.badge-pending{background:#FDF2E1;color:#B5760C}
+        .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+        .stat{background:var(--kijani-mwanga);border-radius:10px;padding:14px;text-align:center}
+        .stat .num{font-size:24px;font-weight:700;color:var(--kijani)}.stat .label{font-size:12px;color:#6B7670;margin-top:2px}
+        .section-title{font-size:17px;font-weight:700;margin:24px 0 12px}
+        .listing-card{background:#fff;border-radius:12px;padding:16px;margin-bottom:10px;border:1px solid #E6EAE8;display:flex;align-items:center;gap:14px}
+        .crop-icon{font-size:28px}.crop-name{font-weight:600;font-size:15px}
+        .crop-details{color:var(--kijani);font-size:13px;margin-top:2px}
+        .crop-date{color:#6B7670;font-size:12px;margin-top:2px}
+        .contact-card{background:var(--kijani-giza);color:#fff;border-radius:14px;padding:20px;text-align:center;margin-top:20px}
+        .contact-card p{margin:0 0 14px;font-size:14px;color:#A9C9B8}
+        .contact-btn{display:inline-block;background:#fff;color:var(--kijani-giza);font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:15px}
+        .footer{text-align:center;color:#6B7670;font-size:12px;margin:32px 0 20px}
+      </style></head><body>
+      <div class="header"><span style="font-size:22px">🌱</span><div><h1>Soko la Mkulima</h1><p>Soko la Mazao Tanzania</p></div></div>
+      <div class="container">
+        <div class="card">
+          <div class="profile-top">
+            <div class="avatar">👨‍🌾</div>
+            <div>
+              <div class="profile-name">${w.jina}</div>
+              <div class="profile-location">📍 ${w.mkoa}, ${w.wilaya}</div>
+              ${w.verified ? `<span class="badge badge-ok">✓ Mkulima Aliyethibitishwa</span>` : `<span class="badge badge-pending">⏳ Bado Hajathibitishwa</span>`}
+            </div>
+          </div>
+          <div class="stats">
+            <div class="stat"><div class="num">${matangazoResult.rows.length}</div><div class="label">Matangazo</div></div>
+            <div class="stat"><div class="num">${maombiResult.rows[0].count}</div><div class="label">Maombi Yaliyopokelewa</div></div>
+            <div class="stat"><div class="num">${maombiKubaliwa.rows[0].count}</div><div class="label">Miamala Iliyofanikiwa</div></div>
+          </div>
+        </div>
+        <div class="section-title">Mazao Yanayouzwa Sasa</div>
+        ${matangazoRows}
+        <div class="contact-card">
+          <p>Una nia ya kununua mazao ya ${w.jina}?</p>
+          <a href="tel:${w.phone_number}" class="contact-btn">📞 Piga Simu</a>
+        </div>
+        <div class="footer">Soko la Mkulima — Kuunganisha Wakulima na Wanunuzi Tanzania</div>
+      </div></body></html>`);
+  } catch (err) {
+    res.status(500).send("Tatizo: " + err.message);
   }
 });
 
