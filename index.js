@@ -625,7 +625,241 @@ app.get("/mkulima/:simu", async (req, res) => {
   }
 });
 
-// ROUTE YA MIGRATION (v2): kuongeza safu mpya - bei, verified, active, na buyer_requests
+// ---- UKURASA WA SOKO KUU (/soko) - orodha ya wakulima wote ----
+app.get("/soko", async (req, res) => {
+  try {
+    const zaoChaguzi = req.query.zao || "";
+    const mkoaChaguzi = req.query.mkoa || "";
+
+    // Pata mazao yote na mikoa yote kwa filter dropdowns
+    const mazaoResult = await pool.query(
+      "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE ORDER BY zao"
+    );
+    const mikoaResult = await pool.query(
+      "SELECT DISTINCT mkoa FROM wakulima ORDER BY mkoa"
+    );
+
+    // Pata matangazo yote ukizingatia filter
+    let query = `
+      SELECT DISTINCT ON (m.phone_number, m.zao)
+        m.id, m.zao, m.idadi, m.bei, m.phone_number, m.tarehe,
+        w.jina, w.mkoa, w.wilaya, w.verified
+      FROM matangazo m
+      LEFT JOIN wakulima w ON m.phone_number = w.phone_number
+      WHERE m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+    `;
+    const params = [];
+
+    if (zaoChaguzi) {
+      params.push(zaoChaguzi);
+      query += ` AND m.zao = $${params.length}`;
+    }
+    if (mkoaChaguzi) {
+      params.push(mkoaChaguzi);
+      query += ` AND w.mkoa = $${params.length}`;
+    }
+    query += " ORDER BY m.phone_number, m.zao, m.tarehe DESC";
+
+    const matangazoResult = await pool.query(query, params);
+
+    // Tengeneza HTML ya kadi za wakulima
+    const kadiZaWakulima = matangazoResult.rows.length === 0
+      ? `<div class="hakuna">
+           <div style="font-size:48px">🌾</div>
+           <h3>Hakuna matangazo yanayolingana na utafutaji wako</h3>
+           <p>Jaribu kubadilisha zao au mkoa</p>
+         </div>`
+      : matangazoResult.rows.map((m) => {
+          const jina = m.jina || "Mkulima";
+          const eneo = m.mkoa ? `${m.mkoa}, ${m.wilaya || ""}` : "Eneo halijulikani";
+          const bei = m.bei ? `TZS ${Number(m.bei).toLocaleString()} / gunia` : "Bei kwa mazungumzo";
+          const verified = m.verified
+            ? `<span class="badge-ok">✓ Verified</span>`
+            : `<span class="badge-pending">Hajathibitishwa</span>`;
+          const cropEmoji = {
+            mahindi: "🌽", mpunga: "🌾", maharage: "🫘",
+            mtama: "🌾", ufuta: "🌿", karanga: "🥜"
+          }[m.zao?.toLowerCase()] || "🌱";
+
+          return `
+            <div class="kadi">
+              <div class="kadi-juu">
+                <div class="avatar">👨‍🌾</div>
+                <div>
+                  <div class="jina">${jina} ${verified}</div>
+                  <div class="eneo">📍 ${eneo}</div>
+                </div>
+              </div>
+              <div class="mazao-info">
+                <span class="zao-badge">${cropEmoji} ${capitalize(m.zao)}</span>
+                <span class="idadi">Magunia ${m.idadi}</span>
+                <span class="bei">${bei}</span>
+              </div>
+              <div class="kadi-vitendo">
+                <a href="/mkulima/${encodeURIComponent(m.phone_number)}" class="btn-wasifu">
+                  👤 Angalia Wasifu
+                </a>
+                <a href="tel:${m.phone_number}" class="btn-simu">
+                  📞 Piga Simu
+                </a>
+              </div>
+            </div>`;
+        }).join("");
+
+    // Tengeneza options za filter
+    const mazaoOptions = mazaoResult.rows
+      .map((r) => `<option value="${r.zao}" ${zaoChaguzi === r.zao ? "selected" : ""}>${capitalize(r.zao)}</option>`)
+      .join("");
+    const mikoaOptions = mikoaResult.rows
+      .map((r) => `<option value="${r.mkoa}" ${mkoaChaguzi === r.mkoa ? "selected" : ""}>${r.mkoa}</option>`)
+      .join("");
+
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="sw">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Soko la Mkulima — Tafuta Wakulima Tanzania</title>
+        <style>
+          :root{--kijani:#2E8B57;--kijani-giza:#14432F;--kijani-mwanga:#E8F5EE;--bg:#F2F5F4}
+          *{box-sizing:border-box;margin:0;padding:0}
+          body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:#1F2A24}
+
+          /* HEADER */
+          .header{background:var(--kijani-giza);color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+          .header-logo{display:flex;align-items:center;gap:12px}
+          .header h1{font-size:20px}
+          .header p{font-size:12px;color:#A9C9B8;margin-top:2px}
+          .header-nav a{color:#A9C9B8;text-decoration:none;font-size:13px;margin-left:16px}
+          .header-nav a:hover{color:#fff}
+
+          /* HERO */
+          .hero{background:linear-gradient(135deg,var(--kijani-giza) 0%,var(--kijani) 100%);color:#fff;padding:48px 24px;text-align:center}
+          .hero h2{font-size:32px;margin-bottom:10px}
+          .hero p{font-size:16px;color:#C8E6D4;margin-bottom:28px}
+          .takwimu-hero{display:flex;justify-content:center;gap:40px;flex-wrap:wrap}
+          .takwimu-hero div{text-align:center}
+          .takwimu-hero .num{font-size:28px;font-weight:700}
+          .takwimu-hero .lbl{font-size:13px;color:#A9C9B8}
+
+          /* FILTER */
+          .filter-bar{background:#fff;border-bottom:1px solid #E6EAE8;padding:16px 24px}
+          .filter-inner{max-width:1100px;margin:0 auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+          .filter-inner select{padding:9px 14px;border:1px solid #E6EAE8;border-radius:8px;font-size:14px;background:#fff;cursor:pointer;min-width:160px}
+          .filter-inner button{background:var(--kijani);color:#fff;border:none;padding:9px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer}
+          .filter-inner a.reset{color:#6B7670;font-size:13px;text-decoration:none}
+
+          /* GRID */
+          .main{max-width:1100px;margin:28px auto;padding:0 20px}
+          .matokeo-info{font-size:14px;color:#6B7670;margin-bottom:16px}
+          .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+
+          /* KADI */
+          .kadi{background:#fff;border-radius:14px;padding:20px;border:1px solid #E6EAE8;box-shadow:0 1px 4px rgba(0,0,0,0.04);transition:box-shadow 0.2s}
+          .kadi:hover{box-shadow:0 4px 16px rgba(0,0,0,0.08)}
+          .kadi-juu{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+          .avatar{width:48px;height:48px;border-radius:50%;background:var(--kijani-mwanga);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+          .jina{font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+          .eneo{color:#6B7670;font-size:13px;margin-top:3px}
+          .badge-ok{background:#E1F5EC;color:#1B5E3F;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+          .badge-pending{background:#FDF2E1;color:#B5760C;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+          .mazao-info{background:var(--kijani-mwanga);border-radius:10px;padding:12px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+          .zao-badge{background:var(--kijani);color:#fff;padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600}
+          .idadi{font-size:13px;color:#1F2A24}
+          .bei{font-size:13px;color:var(--kijani);font-weight:600;margin-left:auto}
+          .kadi-vitendo{display:flex;gap:8px}
+          .btn-wasifu{flex:1;text-align:center;background:var(--kijani-mwanga);color:var(--kijani);font-weight:600;padding:9px;border-radius:8px;text-decoration:none;font-size:13px}
+          .btn-simu{flex:1;text-align:center;background:var(--kijani);color:#fff;font-weight:600;padding:9px;border-radius:8px;text-decoration:none;font-size:13px}
+
+          /* HAKUNA */
+          .hakuna{text-align:center;padding:60px 20px;color:#6B7670}
+          .hakuna h3{margin:12px 0 8px}
+
+          /* FOOTER */
+          .footer{text-align:center;padding:32px;color:#6B7670;font-size:13px;border-top:1px solid #E6EAE8;margin-top:40px}
+          .footer strong{color:var(--kijani)}
+
+          @media(max-width:600px){
+            .hero h2{font-size:24px}
+            .takwimu-hero{gap:24px}
+            .header-nav{display:none}
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="header-logo">
+            <span style="font-size:26px">🌱</span>
+            <div><h1>Soko la Mkulima</h1><p>Soko la Mazao Tanzania</p></div>
+          </div>
+          <div class="header-nav">
+            <a href="/soko">Nyumbani</a>
+            <a href="/soko?zao=mahindi">Mahindi</a>
+            <a href="/soko?zao=mpunga">Mpunga</a>
+            <a href="/soko?zao=maharage">Maharage</a>
+          </div>
+        </div>
+
+        <!-- HERO -->
+        <div class="hero">
+          <h2>🌾 Tafuta Wakulima Tanzania</h2>
+          <p>Unganika moja kwa moja na wakulima wanaouza mazao yako unayohitaji</p>
+          <div class="takwimu-hero">
+            <div>
+              <div class="num">${matangazoResult.rows.length}</div>
+              <div class="lbl">Matangazo Yaliyopatikana</div>
+            </div>
+            <div>
+              <div class="num">${mikoaResult.rows.length}</div>
+              <div class="lbl">Mikoa</div>
+            </div>
+            <div>
+              <div class="num">${mazaoResult.rows.length}</div>
+              <div class="lbl">Aina za Mazao</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FILTER -->
+        <div class="filter-bar">
+          <form class="filter-inner" method="GET" action="/soko">
+            <select name="zao">
+              <option value="">🌱 Mazao yote</option>
+              ${mazaoOptions}
+            </select>
+            <select name="mkoa">
+              <option value="">📍 Mikoa yote</option>
+              ${mikoaOptions}
+            </select>
+            <button type="submit">Tafuta</button>
+            ${(zaoChaguzi || mkoaChaguzi) ? `<a class="reset" href="/soko">✕ Futa Filter</a>` : ""}
+          </form>
+        </div>
+
+        <!-- GRID YA WAKULIMA -->
+        <div class="main">
+          <div class="matokeo-info">
+            Matangazo ${matangazoResult.rows.length} yamepatikana
+            ${zaoChaguzi ? ` • Zao: <strong>${capitalize(zaoChaguzi)}</strong>` : ""}
+            ${mkoaChaguzi ? ` • Mkoa: <strong>${mkoaChaguzi}</strong>` : ""}
+          </div>
+          <div class="grid">
+            ${kadiZaWakulima}
+          </div>
+        </div>
+
+        <div class="footer">
+          <strong>Soko la Mkulima</strong> — Kuunganisha Wakulima na Wanunuzi Tanzania<br>
+          Piga *384*26213# kutoka simu yoyote kujisajili au kutangaza mazao yako
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (err) {
+    res.status(500).send("Tatizo: " + err.message);
+  }
+});
 // Kuitumia mara MOJA: https://yoursite.onrender.com/migrate-v2?siri=SIRI_YAKO
 app.get("/migrate-v2", async (req, res) => {
   if (req.query.siri !== process.env.ADMIN_SECRET) {
