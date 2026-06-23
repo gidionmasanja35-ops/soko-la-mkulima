@@ -77,7 +77,8 @@ app.post("/ussd", async (req, res) => {
 3. Tazama Matangazo
 4. Jisajili
 5. Maombi ya Ununuzi
-6. Wasifu Wangu`;
+6. Wasifu Wangu
+7. Hali ya Hewa`;
       } else if (majibu[1] === "1") {
         // ANGALIA BEI
         if (majibu.length === 2) {
@@ -246,7 +247,7 @@ app.post("/ussd", async (req, res) => {
           }
         }
       } else if (majibu[1] === "6") {
-        // WASIFU WANGU - mkulima anaona taarifa zake
+        // WASIFU WANGU
         const wasifu = await pool.query(
           "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1",
           [phoneNumber]
@@ -268,6 +269,56 @@ app.post("/ussd", async (req, res) => {
           const matangazoIdadi = matangazoYake.rows[0].count;
           const maombiIdadi = maombiYake.rows[0].count;
           response = `END Wasifu Wako:\nJina: ${w.jina}\nMkoa: ${w.mkoa}\nWilaya: ${w.wilaya}\nMatangazo: ${matangazoIdadi}\nMaombi: ${maombiIdadi}\nHali: ${hali}\nAnwani: soko-la-mkulima.onrender.com/mkulima/${phoneNumber}`;
+        }
+      } else if (majibu[1] === "7") {
+        // HALI YA HEWA
+        const mikoaTZ = {
+          "1": { jina: "Dar es Salaam", lat: -6.8, lon: 39.28 },
+          "2": { jina: "Dodoma", lat: -6.17, lon: 35.74 },
+          "3": { jina: "Mwanza", lat: -2.52, lon: 32.9 },
+          "4": { jina: "Arusha", lat: -3.37, lon: 36.68 },
+          "5": { jina: "Morogoro", lat: -6.82, lon: 37.66 },
+          "6": { jina: "Mbeya", lat: -8.9, lon: 33.46 },
+          "7": { jina: "Tanga", lat: -5.07, lon: 39.1 },
+          "8": { jina: "Iringa", lat: -7.77, lon: 35.69 },
+        };
+
+        if (majibu.length === 2) {
+          const orodha = Object.entries(mikoaTZ)
+            .map(([n, m]) => `${n}. ${m.jina}`).join("\n");
+          response = `CON Chagua mkoa wako:\n${orodha}`;
+        } else if (majibu.length === 3) {
+          const mkoa = mikoaTZ[majibu[2]];
+          if (!mkoa) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            const apiKey = process.env.WEATHER_API_KEY;
+            if (!apiKey) {
+              response = "END Huduma ya hali ya hewa haipatikani kwa sasa.";
+            } else {
+              try {
+                const weatherRes = await fetch(
+                  `https://api.openweathermap.org/data/2.5/forecast?lat=${mkoa.lat}&lon=${mkoa.lon}&appid=${apiKey}&units=metric&cnt=2&lang=sw`
+                );
+                const weatherData = await weatherRes.json();
+                if (weatherData.cod !== "200") {
+                  response = "END Tatizo la kupata hali ya hewa. Jaribu tena.";
+                } else {
+                  const leo = weatherData.list[0];
+                  const kesho = weatherData.list[1] || leo;
+                  const mvuaEmoji = (desc) => {
+                    if (desc.includes("rain") || desc.includes("mvua")) return "🌧";
+                    if (desc.includes("cloud")) return "☁️";
+                    if (desc.includes("storm")) return "⛈️";
+                    return "☀️";
+                  };
+                  response = `END Hali ya Hewa - ${mkoa.jina}\n\nLeo:\n${mvuaEmoji(leo.weather[0].description)} ${leo.weather[0].description}\nJoto: ${Math.round(leo.main.temp)}°C\nUnyevu: ${leo.main.humidity}%\n\nKesho:\n${mvuaEmoji(kesho.weather[0].description)} ${kesho.weather[0].description}\nJoto: ${Math.round(kesho.main.temp)}°C`;
+                }
+              } catch {
+                response = "END Tatizo la mtandao. Jaribu tena baadaye.";
+              }
+            }
+          }
         }
       } else {
         response = "END Chaguo si sahihi. Jaribu tena.";
@@ -991,6 +1042,19 @@ app.get("/migrate-v2", async (req, res) => {
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS transactions (
+        id SERIAL PRIMARY KEY,
+        reference VARCHAR(100) UNIQUE NOT NULL,
+        buyer_phone VARCHAR(20),
+        farmer_phone VARCHAR(20),
+        zao VARCHAR(100),
+        amount DECIMAL(12, 2) NOT NULL,
+        method VARCHAR(20) NOT NULL CHECK (method IN ('M-Pesa','Airtel Money','Tigo Pesa','Bank')),
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending','completed','failed','refunded')),
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
     res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests, wanunuzi, purchase_requests) zimeongezwa.");
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
@@ -1329,6 +1393,11 @@ app.get("/admin", async (req, res) => {
         .analytics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 24px; }
         @media (max-width: 900px) { .analytics-grid { grid-template-columns: 1fr; } .notif-grid { grid-template-columns: 1fr; } }
 
+        /* RIPOTI BUTTONS */
+        .btn-ripoti { display:inline-block; background:#14432F; color:#fff; padding:10px 16px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; }
+        .btn-excel { background:#217346; }
+        .btn-ripoti:hover { opacity:0.9; }
+
         @media (max-width: 1000px) {
           .stats, .panels, .table-section { grid-template-columns: 1fr; }
           .sidebar { display: none; }
@@ -1548,6 +1617,34 @@ app.get("/admin", async (req, res) => {
             </div>
           </div>
 
+          <h2 class="section-title">💰 Rekodi za Malipo (Transactions)</h2>
+          <div class="form-panel">
+            <h3>Ongeza Muamala Mpya</h3>
+            <form method="POST" action="/admin/transaction?siri=${safeSiri}">
+              <input name="reference" placeholder="Reference (mfano: MPESA-12345)" required>
+              <input name="buyer_phone" placeholder="Simu ya Mnunuzi">
+              <input name="farmer_phone" placeholder="Simu ya Mkulima">
+              <input name="zao" placeholder="Zao">
+              <input name="amount" placeholder="Kiasi (TZS)" type="number" required>
+              <select name="method" style="padding:9px;border:1px solid #E6EAE8;border-radius:8px;font-size:13px">
+                <option>M-Pesa</option>
+                <option>Airtel Money</option>
+                <option>Tigo Pesa</option>
+                <option>Bank</option>
+              </select>
+              <button type="submit">+ Rekodi</button>
+            </form>
+          </div>
+
+          <h2 class="section-title">📥 Pakua Ripoti</h2>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px">
+            <a href="/ripoti/wakulima?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Wakulima (PDF)</a>
+            <a href="/ripoti/matangazo?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Matangazo (PDF)</a>
+            <a href="/ripoti/maombi?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Maombi (PDF)</a>
+            <a href="/ripoti/wakulima-excel?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Wakulima (Excel/CSV)</a>
+            <a href="/ripoti/matangazo-excel?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Matangazo (Excel/CSV)</a>
+          </div>
+
           <h2 class="section-title">Bei za Mazao Zilizopo</h2>
           <div class="panel">
             <table>
@@ -1599,6 +1696,116 @@ app.post("/admin/futa", async (req, res) => {
   }
   await pool.query("DELETE FROM bei_mazao WHERE id = $1", [req.body.id]);
   res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
+});
+
+// ---- REKODI YA TRANSACTION ----
+app.post("/admin/transaction", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
+  try {
+    await pool.query(
+      "INSERT INTO transactions (reference, buyer_phone, farmer_phone, zao, amount, method) VALUES ($1,$2,$3,$4,$5,$6)",
+      [reference, buyer_phone || null, farmer_phone || null, zao || null, amount, method]
+    );
+    res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
+  } catch (err) {
+    res.status(500).send("Tatizo: " + err.message);
+  }
+});
+
+// ---- RIPOTI ZA CSV (Excel-compatible) ----
+app.get("/ripoti/:aina-excel", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  const aina = req.params["aina-excel"] || req.params.aina;
+  let data = [], headers = [], filename = "ripoti";
+
+  if (aina === "wakulima") {
+    const r = await pool.query("SELECT jina, mkoa, wilaya, phone_number, verified, tarehe FROM wakulima ORDER BY tarehe DESC");
+    headers = ["Jina", "Mkoa", "Wilaya", "Simu", "Amethibitishwa", "Tarehe"];
+    data = r.rows.map(w => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified ? "Ndiyo" : "Hapana", new Date(w.tarehe).toLocaleDateString("sw-TZ")]);
+    filename = "wakulima";
+  } else if (aina === "matangazo") {
+    const r = await pool.query("SELECT zao, idadi, bei, phone_number, active, tarehe FROM matangazo ORDER BY tarehe DESC");
+    headers = ["Zao", "Magunia", "Bei/Gunia", "Simu", "Hai", "Tarehe"];
+    data = r.rows.map(m => [m.zao, m.idadi, m.bei || "", m.phone_number, m.active ? "Ndiyo" : "Hapana", new Date(m.tarehe).toLocaleDateString("sw-TZ")]);
+    filename = "matangazo";
+  }
+
+  const csv = [headers.join(","), ...data.map(row => row.map(v => `"${v}"`).join(","))].join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send("\uFEFF" + csv); // BOM ya UTF-8 ili Excel ione Kiswahili vizuri
+});
+
+// ---- RIPOTI ZA PDF ----
+app.get("/ripoti/:aina", async (req, res) => {
+  if (req.query.siri !== process.env.ADMIN_SECRET) {
+    return res.status(403).send("Hairuhusiwi.");
+  }
+  const aina = req.params.aina;
+  let title = "", rows = [], headers = [];
+
+  if (aina === "wakulima") {
+    title = "Ripoti ya Wakulima";
+    const r = await pool.query("SELECT jina, mkoa, wilaya, phone_number, verified, tarehe FROM wakulima ORDER BY tarehe DESC");
+    headers = ["Jina", "Mkoa", "Wilaya", "Simu", "Hali"];
+    rows = r.rows.map(w => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified ? "✓ Verified" : "Hajathibitishwa"]);
+  } else if (aina === "matangazo") {
+    title = "Ripoti ya Matangazo";
+    const r = await pool.query("SELECT zao, idadi, bei, phone_number, tarehe FROM matangazo ORDER BY tarehe DESC");
+    headers = ["Zao", "Magunia", "Bei/Gunia", "Simu", "Tarehe"];
+    rows = r.rows.map(m => [capitalize(m.zao), m.idadi, m.bei ? `TZS ${Number(m.bei).toLocaleString()}` : "-", m.phone_number, new Date(m.tarehe).toLocaleDateString("sw-TZ")]);
+  } else if (aina === "maombi") {
+    title = "Ripoti ya Maombi ya Wanunuzi";
+    const r = await pool.query("SELECT zao, idadi, mkoa, phone_number, tarehe FROM buyer_requests ORDER BY tarehe DESC");
+    headers = ["Zao", "Kiasi", "Mkoa", "Simu", "Tarehe"];
+    rows = r.rows.map(b => [capitalize(b.zao), b.idadi, b.mkoa, b.phone_number, new Date(b.tarehe).toLocaleDateString("sw-TZ")]);
+  } else {
+    return res.status(404).send("Ripoti hii haipatikani.");
+  }
+
+  const tarehe = new Date().toLocaleDateString("sw-TZ");
+  const tableRows = rows.map(row => `
+    <tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>
+  `).join("");
+
+  const html = `
+    <!DOCTYPE html><html><head>
+    <meta charset="UTF-8">
+    <title>${title}</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #1F2A24; padding: 40px; }
+      h1 { color: #14432F; font-size: 22px; }
+      .meta { color: #6B7670; font-size: 13px; margin-bottom: 24px; }
+      table { width: 100%; border-collapse: collapse; font-size: 13px; }
+      th { background: #14432F; color: #fff; padding: 10px 12px; text-align: left; }
+      td { padding: 8px 12px; border-bottom: 1px solid #E6EAE8; }
+      tr:nth-child(even) td { background: #F2F5F4; }
+      .footer { margin-top: 32px; color: #6B7670; font-size: 12px; text-align: center; }
+      @media print { .no-print { display:none; } }
+    </style>
+    </head><body>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+      <span style="font-size:28px">🌱</span>
+      <div><h1 style="margin:0">${title}</h1><div class="meta">Soko la Mkulima Tanzania • Tarehe: ${tarehe} • Rekodi: ${rows.length}</div></div>
+    </div>
+    <p class="no-print" style="margin-bottom:16px">
+      <button onclick="window.print()" style="background:#14432F;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px">🖨️ Chapisha / Hifadhi PDF</button>
+    </p>
+    <table>
+      <tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>
+      ${tableRows || "<tr><td colspan='5' style='text-align:center;color:#6B7670'>Hakuna data bado.</td></tr>"}
+    </table>
+    <div class="footer">Soko la Mkulima — Kuunganisha Wakulima na Wanunuzi Tanzania</div>
+    </body></html>
+  `;
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(html);
 });
 
 const PORT = process.env.PORT || 3000;
