@@ -276,7 +276,8 @@ app.post("/ussd", async (req, res) => {
         response = `CON Karibu Mnunuzi
 1. Tafuta Mazao
 2. Omba Zao
-3. Jisajili`;
+3. Jisajili
+4. Kadiria Mkulima`;
       } else if (majibu[1] === "1") {
         // ---- TAFUTA MAZAO (search yaliyopo) ----
         if (majibu.length === 2) {
@@ -424,6 +425,65 @@ app.post("/ussd", async (req, res) => {
               [jina, mkoa, wilaya, phoneNumber]
             );
             response = "END Umesajiliwa Kikamilifu";
+          }
+        }
+      } else if (majibu[1] === "4") {
+        // KADIRIA MKULIMA - mnunuzi anampa nyota mkulima baada ya muamala
+        if (majibu.length === 2) {
+          // Onyesha wakulima ambao wamekubali maombi ya mnunuzi huyu
+          const muamalaResult = await pool.query(
+            `SELECT pr.id, pr.farmer_phone, pr.zao, w.jina
+             FROM purchase_requests pr
+             LEFT JOIN wakulima w ON pr.farmer_phone = w.phone_number
+             WHERE pr.buyer_phone = $1 AND pr.status = 'accepted'
+             AND pr.id NOT IN (SELECT ombi_id FROM ratings WHERE buyer_phone = $1)
+             ORDER BY pr.tarehe DESC LIMIT 5`,
+            [phoneNumber]
+          );
+
+          if (muamalaResult.rows.length === 0) {
+            response = "END Huna miamala inayohitaji ukadiriaji kwa sasa.";
+          } else {
+            const orodha = muamalaResult.rows
+              .map((m, i) => `${i + 1}. ${m.jina || "Mkulima"} - ${capitalize(m.zao)}`)
+              .join("\n");
+            response = `CON Chagua mkulima wa kukadiria:\n${orodha}`;
+          }
+        } else if (majibu.length === 3) {
+          response = `CON Mpe nyota mkulima huyu:\n1. ⭐ (1 - Mbaya)\n2. ⭐⭐ (2 - Wastani)\n3. ⭐⭐⭐ (3 - Nzuri)\n4. ⭐⭐⭐⭐ (4 - Nzuri Sana)\n5. ⭐⭐⭐⭐⭐ (5 - Bora Kabisa)`;
+        } else if (majibu.length === 4) {
+          const nyota = parseInt(majibu[3]);
+          if (nyota < 1 || nyota > 5) {
+            response = "END Chagua nyota kati ya 1 na 5.";
+          } else {
+            const muamalaResult = await pool.query(
+              `SELECT pr.id, pr.farmer_phone, pr.zao, w.jina
+               FROM purchase_requests pr
+               LEFT JOIN wakulima w ON pr.farmer_phone = w.phone_number
+               WHERE pr.buyer_phone = $1 AND pr.status = 'accepted'
+               AND pr.id NOT IN (SELECT ombi_id FROM ratings WHERE buyer_phone = $1)
+               ORDER BY pr.tarehe DESC LIMIT 5`,
+              [phoneNumber]
+            );
+            const muamalaTeule = muamalaResult.rows[parseInt(majibu[2]) - 1];
+
+            if (!muamalaTeule) {
+              response = "END Chaguo si sahihi. Jaribu tena.";
+            } else {
+              await pool.query(
+                "INSERT INTO ratings (buyer_phone, farmer_phone, ombi_id, nyota) VALUES ($1, $2, $3, $4)",
+                [phoneNumber, muamalaTeule.farmer_phone, muamalaTeule.id, nyota]
+              );
+
+              // Tuma SMS kwa mkulima kumjulisha ukadiriaji
+              const nyotaText = "⭐".repeat(nyota);
+              await tumaSMS(
+                muamalaTeule.farmer_phone,
+                `Mnunuzi amekupa ukadiriaji wa ${nyotaText} (${nyota}/5) kwa ${capitalize(muamalaTeule.zao)}.`
+              );
+
+              response = `END Asante! Umempa mkulima nyota ${nyota}/5. Ukadiriaji wako utasaidia wanunuzi wengine.`;
+            }
           }
         }
       } else {
@@ -631,6 +691,16 @@ app.get("/soko", async (req, res) => {
     const zaoChaguzi = req.query.zao || "";
     const mkoaChaguzi = req.query.mkoa || "";
 
+    // Pata ratings za kila mkulima
+    const ratingsResult = await pool.query(`
+      SELECT farmer_phone, ROUND(AVG(nyota), 1) as wastani, COUNT(*) as idadi
+      FROM ratings GROUP BY farmer_phone
+    `);
+    const ratingsMap = {};
+    ratingsResult.rows.forEach(r => {
+      ratingsMap[r.farmer_phone] = { wastani: r.wastani, idadi: r.idadi };
+    });
+
     // Pata mazao yote na mikoa yote kwa filter dropdowns
     const mazaoResult = await pool.query(
       "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE ORDER BY zao"
@@ -681,6 +751,11 @@ app.get("/soko", async (req, res) => {
             mtama: "🌾", ufuta: "🌿", karanga: "🥜"
           }[m.zao?.toLowerCase()] || "🌱";
 
+          const rating = ratingsMap[m.phone_number];
+          const ratingHTML = rating
+            ? `<div class="rating">⭐ ${rating.wastani} <span>(${rating.idadi} ukadiriaji)</span></div>`
+            : `<div class="rating" style="color:#ccc">Bado hajakadiriwa</div>`;
+
           return `
             <div class="kadi">
               <div class="kadi-juu">
@@ -688,6 +763,7 @@ app.get("/soko", async (req, res) => {
                 <div>
                   <div class="jina">${jina} ${verified}</div>
                   <div class="eneo">📍 ${eneo}</div>
+                  ${ratingHTML}
                 </div>
               </div>
               <div class="mazao-info">
@@ -733,6 +809,10 @@ app.get("/soko", async (req, res) => {
           .header p{font-size:12px;color:#A9C9B8;margin-top:2px}
           .header-nav a{color:#A9C9B8;text-decoration:none;font-size:13px;margin-left:16px}
           .header-nav a:hover{color:#fff}
+
+          /* RATING */
+          .rating{font-size:13px;color:#F59E0B;margin-top:4px}
+          .rating span{color:#6B7670;font-size:12px}
 
           /* HERO */
           .hero{background:linear-gradient(135deg,var(--kijani-giza) 0%,var(--kijani) 100%);color:#fff;padding:48px 24px;text-align:center}
@@ -901,6 +981,16 @@ app.get("/migrate-v2", async (req, res) => {
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS ratings (
+        id SERIAL PRIMARY KEY,
+        buyer_phone VARCHAR(20) NOT NULL,
+        farmer_phone VARCHAR(20) NOT NULL,
+        ombi_id INTEGER NOT NULL,
+        nyota INTEGER NOT NULL CHECK (nyota BETWEEN 1 AND 5),
+        tarehe TIMESTAMP DEFAULT NOW()
+      );
+    `);
     res.send("✅ Migration v2 imefanikiwa! Safu mpya (bei, verified, active, buyer_requests, wanunuzi, purchase_requests) zimeongezwa.");
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
@@ -947,6 +1037,46 @@ app.get("/admin", async (req, res) => {
       GROUP BY d.siku
       ORDER BY d.siku
     `);
+    // ANALYTICS: Wakulima kwa Mkoa
+    const wakulimaMkoaResult = await pool.query(`
+      SELECT mkoa, COUNT(*) as idadi
+      FROM wakulima GROUP BY mkoa ORDER BY idadi DESC LIMIT 8
+    `);
+    // ANALYTICS: Demand vs Supply
+    const demandVsSupply = await pool.query(`
+      SELECT
+        COALESCE(s.zao, d.zao) AS zao,
+        COALESCE(s.supply, 0) AS supply,
+        COALESCE(d.demand, 0) AS demand
+      FROM (
+        SELECT zao, SUM(CAST(REGEXP_REPLACE(idadi, '[^0-9]', '', 'g') AS INTEGER)) AS supply
+        FROM matangazo WHERE active = TRUE GROUP BY zao
+      ) s
+      FULL OUTER JOIN (
+        SELECT zao, SUM(CAST(REGEXP_REPLACE(idadi, '[^0-9]', '', 'g') AS INTEGER)) AS demand
+        FROM buyer_requests GROUP BY zao
+      ) d ON s.zao = d.zao
+      ORDER BY supply DESC LIMIT 6
+    `);
+    // ANALYTICS: Ratings
+    const ratingsResult = await pool.query(`
+      SELECT farmer_phone, ROUND(AVG(nyota),1) as wastani, COUNT(*) as idadi
+      FROM ratings GROUP BY farmer_phone ORDER BY wastani DESC LIMIT 5
+    `);
+    // NOTIFICATIONS: mambo yanayohitaji umakini
+    const keshoResult = await pool.query(`
+      SELECT COUNT(*) FROM matangazo
+      WHERE expires_at BETWEEN NOW() AND NOW() + INTERVAL '1 day' AND active = TRUE
+    `);
+    const hawajaThitibishwaResult = await pool.query(
+      "SELECT COUNT(*) FROM wakulima WHERE verified = FALSE"
+    );
+    const maombiMapyaResult = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE status = 'pending'"
+    );
+    const wakulimaMpyaResult = await pool.query(
+      "SELECT COUNT(*) FROM wakulima WHERE tarehe > NOW() - INTERVAL '24 hours'"
+    );
 
     const safeSiri = encodeURIComponent(req.query.siri);
     const jumlaMatangazo = matangazoResult.rows.length;
@@ -1185,6 +1315,20 @@ app.get("/admin", async (req, res) => {
 
         h2.section-title { font-size: 18px; margin: 30px 0 14px; }
 
+        /* NOTIFICATIONS */
+        .notif-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 8px; }
+        .notif { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-radius: 10px; border: 1px solid; }
+        .notif-info { background: #EBF5FB; border-color: #AED6F1; }
+        .notif-warning { background: #FEF9E7; border-color: #F9E79F; }
+        .notif-danger { background: #FDEDEC; border-color: #F5B7B1; }
+        .notif-icon { font-size: 22px; flex-shrink: 0; }
+        .notif-title { font-weight: 700; font-size: 14px; margin-bottom: 3px; }
+        .notif-msg { font-size: 13px; color: #555; }
+
+        /* ANALYTICS */
+        .analytics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 24px; }
+        @media (max-width: 900px) { .analytics-grid { grid-template-columns: 1fr; } .notif-grid { grid-template-columns: 1fr; } }
+
         @media (max-width: 1000px) {
           .stats, .panels, .table-section { grid-template-columns: 1fr; }
           .sidebar { display: none; }
@@ -1280,6 +1424,110 @@ app.get("/admin", async (req, res) => {
               <input name="bei" placeholder="Bei kwa kilo (TZS)" type="number" required>
               <button type="submit">+ Ongeza Bei</button>
             </form>
+          </div>
+
+          <!-- NOTIFICATIONS CENTER -->
+          <h2 class="section-title">🔔 Kituo cha Taarifa</h2>
+          <div class="notif-grid">
+            ${parseInt(wakulimaMpyaResult.rows[0].count) > 0 ? `
+            <div class="notif notif-info">
+              <span class="notif-icon">👨‍🌾</span>
+              <div>
+                <div class="notif-title">Wakulima Wapya (Saa 24)</div>
+                <div class="notif-msg">${wakulimaMpyaResult.rows[0].count} wakulima wapya wamejisajili</div>
+              </div>
+            </div>` : ""}
+            ${parseInt(maombiMapyaResult.rows[0].count) > 0 ? `
+            <div class="notif notif-warning">
+              <span class="notif-icon">💬</span>
+              <div>
+                <div class="notif-title">Maombi Yanayosubiri</div>
+                <div class="notif-msg">${maombiMapyaResult.rows[0].count} maombi ya ununuzi bado hayajajibiwa</div>
+              </div>
+            </div>` : ""}
+            ${parseInt(keshoResult.rows[0].count) > 0 ? `
+            <div class="notif notif-danger">
+              <span class="notif-icon">⏰</span>
+              <div>
+                <div class="notif-title">Matangazo Yanayokwisha Muda</div>
+                <div class="notif-msg">${keshoResult.rows[0].count} matangazo yataisha ndani ya saa 24</div>
+              </div>
+            </div>` : ""}
+            ${parseInt(hawajaThitibishwaResult.rows[0].count) > 0 ? `
+            <div class="notif notif-warning">
+              <span class="notif-icon">✅</span>
+              <div>
+                <div class="notif-title">Uthibitisho Unahitajika</div>
+                <div class="notif-msg">${hawajaThitibishwaResult.rows[0].count} wakulima hawajathibitishwa bado</div>
+              </div>
+            </div>` : ""}
+            ${(parseInt(wakulimaMpyaResult.rows[0].count) === 0 && parseInt(maombiMapyaResult.rows[0].count) === 0 && parseInt(keshoResult.rows[0].count) === 0 && parseInt(hawajaThitibishwaResult.rows[0].count) === 0) ? `
+            <div class="notif notif-info">
+              <span class="notif-icon">✅</span>
+              <div><div class="notif-title">Kila kitu kiko sawa!</div><div class="notif-msg">Hakuna taarifa zinazohitaji umakini kwa sasa.</div></div>
+            </div>` : ""}
+          </div>
+
+          <!-- ANALYTICS -->
+          <h2 class="section-title">📊 Uchambuzi wa Kina</h2>
+          <div class="analytics-grid">
+            <!-- Wakulima kwa Mkoa -->
+            <div class="panel">
+              <h3>Wakulima kwa Mkoa</h3>
+              ${(() => {
+                const mkMax = Math.max(1, ...wakulimaMkoaResult.rows.map(r => parseInt(r.idadi)));
+                return wakulimaMkoaResult.rows.map((r, i) => `
+                  <div class="bar-row">
+                    <span class="bar-label" style="width:80px">${r.mkoa}</span>
+                    <div class="bar-track"><div class="bar-fill" style="width:${Math.round(parseInt(r.idadi)/mkMax*100)}%;background:${["#2E8B57","#E67E22","#3B82C4","#8B5FBF","#D7263D","#1B5E3F","#F59E0B","#06B6D4"][i%8]}"></div></div>
+                    <span class="bar-value">${r.idadi}</span>
+                  </div>`).join("") || "<p class='hakuna'>Hakuna data bado.</p>";
+              })()}
+            </div>
+
+            <!-- Demand vs Supply -->
+            <div class="panel">
+              <h3>Demand vs Supply (Magunia)</h3>
+              <table style="width:100%;border-collapse:collapse;font-size:13px">
+                <tr>
+                  <th style="text-align:left;padding:8px;border-bottom:1px solid #E6EAE8">Zao</th>
+                  <th style="text-align:right;padding:8px;border-bottom:1px solid #E6EAE8;color:#2E8B57">Supply</th>
+                  <th style="text-align:right;padding:8px;border-bottom:1px solid #E6EAE8;color:#E67E22">Demand</th>
+                  <th style="text-align:right;padding:8px;border-bottom:1px solid #E6EAE8">Hali</th>
+                </tr>
+                ${demandVsSupply.rows.map(r => {
+                  const supply = parseInt(r.supply) || 0;
+                  const demand = parseInt(r.demand) || 0;
+                  const hali = supply > demand
+                    ? `<span style="color:#2E8B57">Ziada</span>`
+                    : supply < demand
+                      ? `<span style="color:#D7263D">Upungufu</span>`
+                      : `<span style="color:#6B7670">Sawa</span>`;
+                  return `<tr>
+                    <td style="padding:8px;border-bottom:1px solid #E6EAE8">${capitalize(r.zao || "")}</td>
+                    <td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right;color:#2E8B57">${supply}</td>
+                    <td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right;color:#E67E22">${demand}</td>
+                    <td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right">${hali}</td>
+                  </tr>`;
+                }).join("") || "<tr><td colspan='4' style='padding:12px;color:#6B7670'>Hakuna data bado.</td></tr>"}
+              </table>
+            </div>
+
+            <!-- Top Rated Farmers -->
+            <div class="panel">
+              <h3>Wakulima Waliokadiriwa Zaidi</h3>
+              ${ratingsResult.rows.length === 0
+                ? "<p class='hakuna'>Hakuna ukadiriaji bado.</p>"
+                : ratingsResult.rows.map((r, i) => `
+                  <div class="bar-row" style="margin-bottom:14px">
+                    <span style="font-size:18px;margin-right:8px">${["🥇","🥈","🥉","4️⃣","5️⃣"][i]}</span>
+                    <div style="flex:1">
+                      <div style="font-size:13px;font-weight:600">${r.farmer_phone}</div>
+                      <div style="font-size:12px;color:#6B7670">${r.idadi} ukadiriaji</div>
+                    </div>
+                    <span style="color:#F59E0B;font-weight:700">⭐ ${r.wastani}</span>
+                  </div>`).join("")}
+            </div>
           </div>
 
           <!-- TABLES -->
