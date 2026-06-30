@@ -558,7 +558,349 @@ function capitalize(neno) {
 }
 
 app.get("/", (req, res) => {
-  res.send("Soko la Mkulima USSD server inafanya kazi vizuri! (Toleo la Database)");
+  res.send(`<!DOCTYPE html>
+<html lang="sw">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Soko la Mkulima — Unganika na Wakulima Tanzania</title>
+  <style>
+    :root {
+      --kijani: #2E8B57;
+      --kijani-giza: #14432F;
+      --kijani-mwanga: #E8F5EE;
+      --chungwa: #E67E22;
+      --bg: #F2F5F4;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1F2A24; }
+    a { text-decoration: none; }
+
+    /* NAV */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: rgba(20, 67, 47, 0.97); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 40px;
+    }
+    .nav-brand { display: flex; align-items: center; gap: 10px; color: #fff; }
+    .nav-brand h1 { font-size: 18px; }
+    .nav-brand p { font-size: 11px; color: #A9C9B8; }
+    .nav-links { display: flex; gap: 24px; align-items: center; }
+    .nav-links a { color: #CFE3D8; font-size: 14px; }
+    .nav-links a:hover { color: #fff; }
+    .nav-links .btn-nav {
+      background: var(--kijani); color: #fff; padding: 8px 20px;
+      border-radius: 8px; font-weight: 600; font-size: 14px;
+    }
+
+    /* HERO */
+    .hero {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #0D2B1E 0%, #1B5E3F 50%, #2E8B57 100%);
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; text-align: center;
+      padding: 100px 24px 60px; position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute; inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,0.1); color: #A9C9B8;
+      padding: 6px 16px; border-radius: 20px; font-size: 13px;
+      border: 1px solid rgba(255,255,255,0.15); margin-bottom: 24px;
+    }
+    .hero h2 {
+      font-size: clamp(32px, 6vw, 58px); color: #fff;
+      line-height: 1.2; margin-bottom: 20px; font-weight: 800;
+    }
+    .hero h2 span { color: #6FCFA0; }
+    .hero p {
+      font-size: clamp(16px, 2vw, 20px); color: #C8E6D4;
+      max-width: 600px; margin-bottom: 36px; line-height: 1.6;
+    }
+    .hero-btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+    .btn-primary {
+      background: #fff; color: var(--kijani-giza);
+      padding: 14px 32px; border-radius: 10px; font-weight: 700;
+      font-size: 16px; transition: transform 0.2s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); }
+    .btn-secondary {
+      background: rgba(255,255,255,0.12); color: #fff;
+      padding: 14px 32px; border-radius: 10px; font-weight: 600;
+      font-size: 16px; border: 1px solid rgba(255,255,255,0.25);
+      transition: background 0.2s;
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+    .hero-stats {
+      display: flex; gap: 48px; margin-top: 56px; flex-wrap: wrap;
+      justify-content: center;
+    }
+    .hero-stat .num { font-size: 32px; font-weight: 800; color: #fff; }
+    .hero-stat .lbl { font-size: 13px; color: #A9C9B8; margin-top: 2px; }
+
+    /* FEATURES */
+    .section { padding: 80px 40px; }
+    .section-center { text-align: center; max-width: 800px; margin: 0 auto 48px; }
+    .section-center .tag {
+      display: inline-block; background: var(--kijani-mwanga); color: var(--kijani);
+      padding: 4px 14px; border-radius: 20px; font-size: 13px;
+      font-weight: 600; margin-bottom: 14px;
+    }
+    .section-center h3 { font-size: clamp(24px, 4vw, 36px); margin-bottom: 14px; }
+    .section-center p { color: #6B7670; font-size: 16px; line-height: 1.6; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 24px; max-width: 1200px; margin: 0 auto;
+    }
+    .feature-card {
+      background: #fff; border-radius: 16px; padding: 28px;
+      border: 1px solid #E6EAE8; transition: box-shadow 0.2s, transform 0.2s;
+    }
+    .feature-card:hover { box-shadow: 0 8px 24px rgba(0,0,0,0.08); transform: translateY(-3px); }
+    .feature-icon {
+      width: 52px; height: 52px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px; margin-bottom: 16px;
+    }
+    .feature-card h4 { font-size: 17px; margin-bottom: 8px; }
+    .feature-card p { color: #6B7670; font-size: 14px; line-height: 1.5; }
+
+    /* HOW IT WORKS */
+    .how-section { background: var(--kijani-giza); padding: 80px 40px; }
+    .steps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; max-width: 1000px; margin: 0 auto; }
+    .step { text-align: center; color: #CFE3D8; }
+    .step-num {
+      width: 48px; height: 48px; border-radius: 50%;
+      background: var(--kijani); color: #fff; font-weight: 800; font-size: 20px;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+    }
+    .step h4 { color: #fff; margin-bottom: 8px; font-size: 16px; }
+    .step p { font-size: 14px; line-height: 1.5; }
+
+    /* USSD SECTION */
+    .ussd-section {
+      background: var(--bg); padding: 80px 40px;
+      display: flex; align-items: center; justify-content: center; gap: 60px;
+      flex-wrap: wrap;
+    }
+    .ussd-text { max-width: 480px; }
+    .ussd-text .tag {
+      display: inline-block; background: #FEF3E2; color: #B5760C;
+      padding: 4px 14px; border-radius: 20px; font-size: 13px;
+      font-weight: 600; margin-bottom: 14px;
+    }
+    .ussd-text h3 { font-size: 30px; margin-bottom: 14px; }
+    .ussd-text p { color: #6B7670; line-height: 1.6; margin-bottom: 20px; }
+    .check-list { list-style: none; }
+    .check-list li { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 15px; }
+    .check-list li::before { content: "✓"; color: var(--kijani); font-weight: 700; font-size: 16px; }
+    .ussd-phone {
+      background: #1a1a2e; border-radius: 32px; padding: 20px;
+      min-width: 240px; max-width: 280px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    }
+    .ussd-screen {
+      background: #0a2a1a; border-radius: 18px; padding: 20px;
+      font-family: 'Courier New', monospace; color: #6FCFA0; font-size: 14px;
+      line-height: 1.8; min-height: 220px;
+    }
+    .ussd-dial {
+      text-align: center; margin-top: 14px; color: #6FCFA0;
+      font-size: 12px; font-family: monospace;
+    }
+
+    /* CTA */
+    .cta-section {
+      background: linear-gradient(135deg, var(--kijani-giza), var(--kijani));
+      padding: 80px 40px; text-align: center; color: #fff;
+    }
+    .cta-section h3 { font-size: clamp(24px, 4vw, 38px); margin-bottom: 14px; }
+    .cta-section p { color: #C8E6D4; font-size: 16px; margin-bottom: 32px; max-width: 520px; margin-left: auto; margin-right: auto; }
+
+    /* FOOTER */
+    footer {
+      background: #0D2B1E; color: #6B9C7E; padding: 40px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 16px;
+    }
+    footer .brand { color: #fff; font-weight: 700; font-size: 16px; }
+    footer p { font-size: 13px; }
+
+    @media (max-width: 768px) {
+      nav { padding: 14px 20px; }
+      .nav-links { gap: 12px; }
+      .nav-links a:not(.btn-nav) { display: none; }
+      .section { padding: 60px 20px; }
+      .how-section { padding: 60px 20px; }
+      .ussd-section { padding: 60px 20px; gap: 40px; }
+      .hero-stats { gap: 28px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-brand">
+      <span style="font-size:24px">🌱</span>
+      <div><h1>Soko la Mkulima</h1><p>Soko la Mazao Tanzania</p></div>
+    </div>
+    <div class="nav-links">
+      <a href="/soko">Tazama Mazao</a>
+      <a href="#jinsi">Jinsi Inavyofanya Kazi</a>
+      <a href="/soko" class="btn-nav">Tafuta Wakulima →</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-badge">🌍 Inafanya kazi Tanzania nzima</div>
+    <h2>Unganika na <span>Wakulima</span><br>wa Tanzania Moja kwa Moja</h2>
+    <p>Tafuta wakulima, angalia bei za mazao, na tangaza mazao yako — kupitia simu ya kawaida au smartphone yako.</p>
+    <div class="hero-btns">
+      <a href="/soko" class="btn-primary">🔍 Tafuta Wakulima</a>
+      <a href="#jinsi" class="btn-secondary">Jinsi Inavyofanya Kazi</a>
+    </div>
+    <div class="hero-stats">
+      <div class="hero-stat"><div class="num">🌾</div><div class="lbl">Mazao Mbalimbali</div></div>
+      <div class="hero-stat"><div class="num">📱</div><div class="lbl">Simu Yoyote</div></div>
+      <div class="hero-stat"><div class="num">🇹🇿</div><div class="lbl">Tanzania Nzima</div></div>
+      <div class="hero-stat"><div class="num">⚡</div><div class="lbl">Bure Kutumia</div></div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section class="section" style="background:#fff">
+    <div class="section-center">
+      <div class="tag">Vipengele</div>
+      <h3>Kila Kitu Unachohitaji</h3>
+      <p>Mfumo uliobuniwa mahsusi kwa wakulima na wanunuzi wa Tanzania</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#E8F5EE">🌽</div>
+        <h4>Tangaza Mazao Yako</h4>
+        <p>Wakulima wanaweza kutangaza mazao yao kwa dakika chache — bei, idadi, na mkoa — kupitia USSD au app.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#EBF5FB">🔍</div>
+        <h4>Tafuta Wanunuzi</h4>
+        <p>Wanunuzi wanatafuta mazao kwa zao na mkoa, wanaona bei, na wanaunganika moja kwa moja na mkulima.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FEF9E7">💰</div>
+        <h4>Bei za Soko la Kweli</h4>
+        <p>Angalia bei halisi za mazao kwa kila mkoa — mahindi, mpunga, maharage, na zaidi — zilizosasishwa mara kwa mara.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FEF3E2">☀️</div>
+        <h4>Hali ya Hewa</h4>
+        <p>Pata taarifa za hali ya hewa kwa mkoa wako moja kwa moja kupitia USSD — mvua, joto, unyevu.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#FDEDEC">✓</div>
+        <h4>Wakulima Waliokaguliwa</h4>
+        <p>Wakulima waliokaguliwa (Verified) wanaonekana na alama maalum — wanunuzi wanaweza kuamini zaidi.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:#F5EEF8">⭐</div>
+        <h4>Ukadiriaji na Maoni</h4>
+        <p>Baada ya muamala, wanunuzi wanampa mkulima nyota (1-5) — inasaidia wanunuzi wengine kuchagua vizuri.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="how-section" id="jinsi">
+    <div class="section-center" style="color:#fff">
+      <div class="tag" style="background:rgba(255,255,255,0.1);color:#6FCFA0">Jinsi Inavyofanya Kazi</div>
+      <h3 style="color:#fff">Rahisi Kama 1-2-3</h3>
+      <p style="color:#A9C9B8">Inapatikana kwa kila mtu — hata bila smartphone au intaneti</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h4>Jisajili</h4>
+        <p>Piga *384*26213# kutoka simu yoyote, au tembelea tovuti hii kama una smartphone.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h4>Tangaza au Tafuta</h4>
+        <p>Wakulima watangaze mazao yao. Wanunuzi watafute kwa zao na mkoa wanaotaka.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h4>Unganika</h4>
+        <p>Mfumo unaunganisha mkulima na mnunuzi moja kwa moja — wawasiliane na kufanya biashara.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <h4>Ukadiriaji</h4>
+        <p>Baada ya biashara, toa ukadiriaji ili kusaidia wakulima wengine kujenga uaminifu.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- USSD SECTION -->
+  <section class="ussd-section">
+    <div class="ussd-text">
+      <div class="tag">Bila Intaneti</div>
+      <h3>Inafanya Kazi Kwenye<br>Simu Yoyote</h3>
+      <p>Hata kama huna smartphone au intaneti — piga tu namba fupi yetu na ufanye biashara moja kwa moja kutoka simu yako ya kawaida.</p>
+      <ul class="check-list">
+        <li>Huhitaji intaneti wala data</li>
+        <li>Inafanya kazi kwenye simu yoyote ya bei yoyote</li>
+        <li>Vodacom, Tigo, Airtel — zote zinafanya kazi</li>
+        <li>Lugha ya Kiswahili — rahisi kuelewa</li>
+      </ul>
+    </div>
+    <div class="ussd-phone">
+      <div class="ussd-screen">
+        <div>Karibu Soko la</div>
+        <div>Mkulima</div>
+        <div>&nbsp;</div>
+        <div>1. Mkulima</div>
+        <div>2. Mnunuzi</div>
+        <div>&nbsp;</div>
+        <div style="color:#FFD700">▌</div>
+      </div>
+      <div class="ussd-dial">Piga: *384*26213#</div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <h3>Anza Leo — Ni Bure Kabisa</h3>
+    <p>Jiunge na wakulima na wanunuzi wanaotumia Soko la Mkulima kufanya biashara nzuri Tanzania.</p>
+    <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+      <a href="/soko" class="btn-primary" style="background:#fff;color:#14432F">
+        🔍 Tazama Wakulima Wote
+      </a>
+      <a href="tel:*384*26213%23" class="btn-secondary" style="border-color:rgba(255,255,255,0.4)">
+        📱 Piga *384*26213#
+      </a>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div>
+      <div class="brand">🌱 Soko la Mkulima</div>
+      <p style="margin-top:4px">Kuunganisha Wakulima na Wanunuzi Tanzania</p>
+    </div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <a href="/soko" style="color:#6B9C7E;font-size:14px">Tazama Mazao</a>
+      <a href="#jinsi" style="color:#6B9C7E;font-size:14px">Jinsi Inavyofanya Kazi</a>
+    </div>
+    <p style="font-size:13px">© 2026 Soko la Mkulima. Haki zote zimehifadhiwa.</p>
+  </footer>
+
+</body>
+</html>`);
 });
 
 // ROUTE YA MUDA: kutengeneza majedwali ya database (sasa imefungwa na "siri" + inafanya kazi MARA MOJA tu)
@@ -737,6 +1079,269 @@ app.get("/mkulima/:simu", async (req, res) => {
 });
 
 // ---- UKURASA WA SOKO KUU (/soko) - orodha ya wakulima wote ----
+// ============================================================
+// ---- API ROUTES (JSON) - Kwa Flutter App ----
+// ============================================================
+
+// GET /api/takwimu - Takwimu za jumla
+app.get("/api/takwimu", async (req, res) => {
+  try {
+    const wakulima = await pool.query("SELECT COUNT(*) FROM wakulima");
+    const matangazo = await pool.query("SELECT COUNT(*) FROM matangazo WHERE active = TRUE");
+    const mazao = await pool.query("SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE");
+    const wanunuzi = await pool.query("SELECT COUNT(*) FROM wanunuzi");
+    res.json({
+      wakulima: parseInt(wakulima.rows[0].count),
+      matangazo: parseInt(matangazo.rows[0].count),
+      mazao: parseInt(mazao.rows[0].count),
+      wanunuzi: parseInt(wanunuzi.rows[0].count),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/matangazo?zao=mahindi&mkoa=Dodoma
+app.get("/api/matangazo", async (req, res) => {
+  try {
+    const { zao, mkoa } = req.query;
+    let query = `
+      SELECT DISTINCT ON (m.phone_number, m.zao)
+        m.id, m.zao, m.idadi, m.bei, m.phone_number, m.tarehe,
+        w.jina, w.mkoa, w.wilaya, w.verified,
+        (SELECT ROUND(AVG(r.nyota), 1) FROM ratings r WHERE r.farmer_phone = m.phone_number) AS wastani_rating
+      FROM matangazo m
+      LEFT JOIN wakulima w ON m.phone_number = w.phone_number
+      WHERE m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+    `;
+    const params = [];
+    if (zao) { params.push(zao); query += ` AND m.zao = $${params.length}`; }
+    if (mkoa) { params.push(mkoa); query += ` AND w.mkoa = $${params.length}`; }
+    query += " ORDER BY m.phone_number, m.zao, m.tarehe DESC LIMIT 50";
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/mkulima/:simu - Wasifu wa mkulima mmoja
+app.get("/api/mkulima/:simu", async (req, res) => {
+  try {
+    const simu = decodeURIComponent(req.params.simu);
+    const wasifu = await pool.query(
+      "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1", [simu]
+    );
+    if (wasifu.rows.length === 0) return res.status(404).json({ error: "Mkulima hapatikani" });
+
+    const matangazo = await pool.query(
+      "SELECT * FROM matangazo WHERE phone_number = $1 AND active = TRUE ORDER BY tarehe DESC", [simu]
+    );
+    const maombi = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1", [simu]
+    );
+    const kubaliwa = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1 AND status = 'accepted'", [simu]
+    );
+    const rating = await pool.query(
+      "SELECT ROUND(AVG(nyota), 1) as wastani FROM ratings WHERE farmer_phone = $1", [simu]
+    );
+
+    res.json({
+      ...wasifu.rows[0],
+      matangazo: matangazo.rows,
+      maombi_count: parseInt(maombi.rows[0].count),
+      kubaliwa_count: parseInt(kubaliwa.rows[0].count),
+      wastani_rating: rating.rows[0].wastani,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/bei - Bei za mazao
+app.get("/api/bei", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM bei_mazao ORDER BY zao, mkoa");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/mazao - Mazao yote yaliyopo (kwa dropdowns)
+app.get("/api/mazao", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE ORDER BY zao"
+    );
+    res.json(result.rows.map(r => r.zao));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ombi - Tuma ombi la ununuzi
+app.post("/api/ombi", async (req, res) => {
+  try {
+    const { buyer_phone, farmer_phone, zao, idadi, mkoa } = req.body;
+    if (farmer_phone) {
+      // Ombi kwa mkulima maalum
+      await pool.query(
+        "INSERT INTO purchase_requests (buyer_phone, farmer_phone, zao, idadi) VALUES ($1,$2,$3,$4)",
+        [buyer_phone, farmer_phone, zao, idadi]
+      );
+      await tumaSMS(farmer_phone,
+        `Mnunuzi anataka kununua\n${capitalize(zao)} yako.\nMpigie: ${buyer_phone}`
+      );
+    } else {
+      // Ombi kwa mkoa mzima (buyer request)
+      await pool.query(
+        "INSERT INTO buyer_requests (zao, idadi, mkoa, phone_number) VALUES ($1,$2,$3,$4)",
+        [zao, idadi || '?', mkoa || 'Haijulikani', buyer_phone]
+      );
+      const wakulima = await pool.query(
+        "SELECT phone_number FROM wakulima WHERE mkoa ILIKE $1 LIMIT 10",
+        [mkoa || '%']
+      );
+      for (const w of wakulima.rows) {
+        await tumaSMS(w.phone_number,
+          `Mnunuzi anahitaji ${idadi} ya ${capitalize(zao)}\nmkoa wa ${mkoa}.\nMpigie: ${buyer_phone}`
+        );
+      }
+    }
+    res.json({ success: true, message: "Ombi limetumwa" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- MWISHO WA API ROUTES ----
+
+// ============================================================
+// ---- API ROUTES ZA JSON (zinatumika na Flutter App) ----
+// ============================================================
+
+// Takwimu za jumla
+app.get("/api/takwimu", async (req, res) => {
+  try {
+    const wakulima = await pool.query("SELECT COUNT(*) FROM wakulima");
+    const matangazo = await pool.query("SELECT COUNT(*) FROM matangazo WHERE active = TRUE");
+    const mazao = await pool.query("SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE");
+    res.json({
+      wakulima: parseInt(wakulima.rows[0].count),
+      matangazo: parseInt(matangazo.rows[0].count),
+      mazao: parseInt(mazao.rows[0].count),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Matangazo yote (na filter)
+app.get("/api/matangazo", async (req, res) => {
+  try {
+    const { zao, mkoa } = req.query;
+    let query = `
+      SELECT DISTINCT ON (m.phone_number, m.zao)
+        m.id, m.zao, m.idadi, m.bei, m.phone_number,
+        (SELECT jina FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY tarehe ASC LIMIT 1) AS jina,
+        (SELECT mkoa FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY tarehe ASC LIMIT 1) AS mkoa,
+        (SELECT wilaya FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY tarehe ASC LIMIT 1) AS wilaya,
+        (SELECT verified FROM wakulima w WHERE w.phone_number = m.phone_number ORDER BY tarehe ASC LIMIT 1) AS verified,
+        (SELECT ROUND(AVG(nyota),1) FROM ratings r WHERE r.farmer_phone = m.phone_number) AS wastani_rating
+      FROM matangazo m
+      WHERE m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+    `;
+    const params = [];
+    if (zao) { params.push(zao); query += ` AND m.zao = $${params.length}`; }
+    if (mkoa) {
+      params.push(mkoa);
+      query += ` AND (SELECT mkoa FROM wakulima w WHERE w.phone_number = m.phone_number LIMIT 1) = $${params.length}`;
+    }
+    query += " ORDER BY m.phone_number, m.zao, m.tarehe DESC";
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Wasifu wa mkulima mmoja
+app.get("/api/mkulima/:simu", async (req, res) => {
+  try {
+    const simu = decodeURIComponent(req.params.simu);
+    const wasifu = await pool.query(
+      "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1", [simu]
+    );
+    if (wasifu.rows.length === 0) return res.status(404).json({ error: "Hapatikani" });
+
+    const matangazo = await pool.query(
+      "SELECT * FROM matangazo WHERE phone_number = $1 AND active = TRUE ORDER BY tarehe DESC", [simu]
+    );
+    const maombi = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1", [simu]
+    );
+    const kubaliwa = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1 AND status = 'accepted'", [simu]
+    );
+    const rating = await pool.query(
+      "SELECT ROUND(AVG(nyota),1) as wastani FROM ratings WHERE farmer_phone = $1", [simu]
+    );
+
+    res.json({
+      ...wasifu.rows[0],
+      matangazo: matangazo.rows,
+      maombi_count: parseInt(maombi.rows[0].count),
+      kubaliwa_count: parseInt(kubaliwa.rows[0].count),
+      wastani_rating: rating.rows[0].wastani,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Bei za mazao
+app.get("/api/bei", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM bei_mazao ORDER BY zao, mkoa");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Tuma ombi la ununuzi (kutoka Flutter)
+app.post("/api/ombi", async (req, res) => {
+  try {
+    const { buyer_phone, zao, idadi, mkoa } = req.body;
+    if (!buyer_phone || !zao || !idadi) {
+      return res.status(400).json({ error: "Taarifa zinazohitajika hazipo" });
+    }
+    await pool.query(
+      "INSERT INTO buyer_requests (zao, idadi, mkoa, phone_number) VALUES ($1, $2, $3, $4)",
+      [zao, idadi, mkoa || "", buyer_phone]
+    );
+    // Julisha wakulima wa mkoa huo
+    if (mkoa) {
+      const wakulima = await pool.query(
+        "SELECT phone_number FROM wakulima WHERE mkoa ILIKE $1 LIMIT 10", [mkoa]
+      );
+      for (const w of wakulima.rows) {
+        await tumaSMS(
+          w.phone_number,
+          `Mnunuzi anahitaji ${idadi} ya ${capitalize(zao)}\nmkoa wa ${mkoa}.\nMpigie: ${buyer_phone}`
+        );
+      }
+    }
+    res.json({ success: true, message: "Ombi limetumwa" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+
 app.get("/soko", async (req, res) => {
   try {
     const zaoChaguzi = req.query.zao || "";
