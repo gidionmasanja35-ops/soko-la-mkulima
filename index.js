@@ -178,55 +178,65 @@ app.post("/ussd", async (req, res) => {
           response = "END Umesajiliwa Kikamilifu";
         }
       }
-    } else if (majibu[0] === "5") {
-      // MAOMBI YA UNUNUZI
-      const maombiResult = await pool.query(
-        "SELECT * FROM purchase_requests WHERE farmer_phone = $1 AND status = 'pending' ORDER BY tarehe DESC LIMIT 5",
+   } else if (majibu[0] === "5") {
+      // MAOMBI YA UNUNUZI YA KIMKOA - Mkulima anaona maombi ya mkoa wake
+      
+      // 1. Tafuta mkoa wa mkulima anayetumia USSD kwa sasa
+      const mkulimaResult = await pool.query(
+        "SELECT mkoa FROM wakulima WHERE phone_number = $1",
         [phoneNumber]
       );
 
-      if (majibu.length === 1) {
-        if (maombiResult.rows.length === 0) {
-          response = "END Huna maombi mapya ya ununuzi kwa sasa.";
-        } else {
-          const orodha = maombiResult.rows
-            .map((m, i) => `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`)
-            .join("\n");
-          response = `CON Maombi ya Ununuzi:\n${orodha}\nChagua namba:`;
-        }
-      } else if (majibu.length === 2) {
-        const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
-        if (!ombiTeule) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
-        } else {
-          response = `CON ${capitalize(ombiTeule.zao)} - magunia ${ombiTeule.idadi || "?"}\n1. Kubali\n2. Kataa`;
-        }
-      } else if (majibu.length === 3) {
-        const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
-        if (!ombiTeule) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
-        } else if (majibu[2] === "1") {
-          await pool.query(
-            "UPDATE purchase_requests SET status = 'accepted' WHERE id = $1",
-            [ombiTeule.id]
-          );
-          await tumaSMS(
-            ombiTeule.buyer_phone,
-            `Mkulima amekubali ombi lako\nla ${capitalize(ombiTeule.zao)}.\nMpigie: ${phoneNumber}`
-          );
-          response = "END Umekubali ombi. Mnunuzi amejulishwa.";
-        } else if (majibu[2] === "2") {
-          await pool.query(
-            "UPDATE purchase_requests SET status = 'rejected' WHERE id = $1",
-            [ombiTeule.id]
-          );
-          await tumaSMS(
-            ombiTeule.buyer_phone,
-            `Samahani, mkulima amekataa ombi lako\nla ${capitalize(ombiTeule.zao)}.`
-          );
-          response = "END Umekataa ombi. Mnunuzi amejulishwa.";
-        } else {
-          response = "END Chaguo si sahihi. Jaribu tena.";
+     if (mkulimaResult.rows.length === 0) {
+        response = "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
+      } else {
+        const mkoaWaMkulima = mkulimaResult.rows[0].mkoa;
+
+        // 2. Vuta maombi yote yanayolingana na mkoa wa huyu mkulima kutoka kwenye BUYER_REQUESTS
+        const maombiResult = await pool.query(
+          "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 ORDER BY id DESC LIMIT 5",
+          [`%${mkoaWaMkulima}%`]
+        );
+
+        if (majibu.length === 1) {
+          if (maombiResult.rows.length === 0) {
+            response = `END Hakuna maombi mapya ya ununuzi kwa mkoa wa ${mkoaWaMkulima} kwa sasa.`;
+          } else {
+            const orodha = maombiResult.rows
+              .map((m, i) => `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`)
+              .join("\n");
+            response = `CON Maombi Mkoa wa ${mkoaWaMkulima}:\n${orodha}\nChagua namba:`;
+          }
+        } else if (majibu.length === 2) {
+          const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
+          if (!ombiTeule) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else {
+            response = `CON ${capitalize(ombiTeule.zao)} - magunia ${ombiTeule.idadi || "?"}\n1. Kubali (Chukua Dili)\n2. Kataa`;
+          }
+       } else if (majibu.length === 3) {
+          const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
+          if (!ombiTeule) {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          } else if (majibu[2] === "1") {
+            // 1. Mkulima akikubali, tunalifuta ombi kwenye buyer_requests ili lisionekane kwa wakulima wengine (Dili limechukuliwa)
+            await pool.query(
+              "DELETE FROM buyer_requests WHERE id = $1",
+              [ombiTeule.id]
+            );
+            
+            // 2. Tuma SMS kwa mnunuzi (Kumbuka kutumia ombiTeule.phone_number kulingana na jedwali lako)
+            await tumaSMS(
+              ombiTeule.phone_number,
+              `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)} mkoani ${mkoaWaMkulima}.\nMpigie sasa: ${phoneNumber}`
+            );
+            
+            response = "END Hongera! Umekubali dili hili. Mnunuzi amejulishwa namba yako ya simu.";
+          } else if (majibu[2] === "2") {
+            response = "END Umekataa ombi. Unaweza kuangalia maombi mengine.";
+          } else {
+            response = "END Chaguo si sahihi. Jaribu tena.";
+          }
         }
       }
     } else if (majibu[0] === "6") {
@@ -948,34 +958,51 @@ app.get("/api/mazao", async (req, res) => {
 // POST /api/ombi - Tuma ombi la ununuzi
 app.post("/api/ombi", async (req, res) => {
   try {
+    // 1. Hakikisha tunasoma mkoa unaotoka kwenye Flutter App sasa hivi
     const { buyer_phone, farmer_phone, zao, idadi, mkoa } = req.body;
-    if (farmer_phone) {
-      // Ombi kwa mkulima maalum
+
+    // Angalia kama kuna farmer_phone (Ombi kwa mkulima maalum)
+    if (farmer_phone && farmer_phone.trim() !== '') {
+      
       await pool.query(
-        "INSERT INTO purchase_requests (buyer_phone, farmer_phone, zao, idadi) VALUES ($1,$2,$3,$4)",
+        "INSERT INTO purchase_requests (buyer_phone, farmer_phone, zao, idadi) VALUES ($1, $2, $3, $4)",
         [buyer_phone, farmer_phone, zao, idadi]
       );
-      await tumaSMS(farmer_phone,
+
+      await tumaSMS(
+        farmer_phone,
         `Mnunuzi anataka kununua\n${capitalize(zao)} yako.\nMpigie: ${buyer_phone}`
       );
+
     } else {
-      // Ombi kwa mkoa mzima (buyer request)
+      // 2. Ombi kwa mkoa mzima (Hapa ndipo Flutter yako inapoangukia)
+      const mkoaSafi = mkoa ? mkoa.trim() : 'Haijulikani';
+      const idadiSafi = idadi ? idadi.trim() : '?';
+
+      // Hifadhi kwenye jedwali la buyer_requests kama ulivyodesign
       await pool.query(
-        "INSERT INTO buyer_requests (zao, idadi, mkoa, phone_number) VALUES ($1,$2,$3,$4)",
-        [zao, idadi || '?', mkoa || 'Haijulikani', buyer_phone]
+        "INSERT INTO buyer_requests (zao, idadi, mkoa, phone_number) VALUES ($1, $2, $3, $4)",
+        [zao.toLowerCase().trim(), idadiSafi, mkoaSafi, buyer_phone]
       );
+
+      // 3. Tafuta wakulima wa mkoa huo ili uwatumie SMS ya tahadhari (Alert)
       const wakulima = await pool.query(
         "SELECT phone_number FROM wakulima WHERE mkoa ILIKE $1 LIMIT 10",
-        [mkoa || '%']
+        [`%${mkoaSafi}%`] // Inatafuta hata kama mteja ameandika kwa herufi kubwa au ndogo
       );
+
+      // Tuma SMS kwa wakulima wote wa mkoa huo waliopatikana
       for (const w of wakulima.rows) {
-        await tumaSMS(w.phone_number,
-          `Mnunuzi anahitaji ${idadi} ya ${capitalize(zao)}\nmkoa wa ${mkoa}.\nMpigie: ${buyer_phone}`
+        await tumaSMS(
+          w.phone_number,
+          `Fursa! Mnunuzi anahitaji ${idadiSafi} ya ${capitalize(zao)} mkoa wa ${mkoaSafi}.\nMpigie: ${buyer_phone}`
         );
       }
     }
-    res.json({ success: true, message: "Ombi limetumwa" });
+
+    res.json({ success: true, message: "Ombi limetumwa na wakulima wamejulishwa!" });
   } catch (err) {
+    console.error("Error kwenye /api/ombi:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
