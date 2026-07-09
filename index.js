@@ -22,15 +22,9 @@ app.post("/ussd", async (req, res) => {
 
   try {
     if (text === "" || text === undefined) {
-      // HATUA YA 0: Menyu ya juu kabisa - Sasa inaingia moja kwa moja kwenye huduma za Mkulima
-      response = `CON Karibu Soko la Mkulima
-1. Angalia Bei za Zao
-2. Tangaza Mazao Yako
-3. Tazama Matangazo
-4. Jisajili
-5. Maombi ya Ununuzi
-6. Wasifu Wangu
-7. Hali ya Hewa`;
+      // HATUA YA 0: Menyu ya juu kabisa
+      
+      response = `CON Karibu Soko la Mkulima\n1. Angalia Bei za Zao\n2. Tangaza Mazao Yako\n3. Tazama Matangazo\n4. Jisajili\n5. Maombi ya Ununuzi\n6. Wasifu Wangu\n7. Hali ya Hewa`;
     } else if (majibu[0] === "1") {
       // ANGALIA BEI
       if (majibu.length === 1) {
@@ -106,8 +100,7 @@ app.post("/ussd", async (req, res) => {
         response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi} @ TZS ${bei}) limepokelewa.`;
       }
     } else if (majibu[0] === "3") {
-      // TAZAMA MATANGAZO (5 ya mwisho, yanayofanya kazi tu)
-  // TAZAMA MATANGAZO (5 ya mwisho ya uhakika)
+      // TAZAMA MATANGAZO (Imesafishwa SQL kikamilifu)
       const result = await pool.query(
         "SELECT zao, idadi, bei FROM matangazo ORDER BY tarehe DESC LIMIT 5"
       );
@@ -116,7 +109,7 @@ app.post("/ussd", async (req, res) => {
         response = "END Hakuna matangazo kwa sasa.";
       } else {
         const orodha = result.rows
-          .map((m) => `${m.zao} - magunia ${m.idadi} @ TZS ${m.bei || "?"}`)
+          .map((m) => `${capitalize(m.zao)} - magunia ${m.idadi} @ TZS ${m.bei || "?"}`)
           .join("\n");
         response = `END Matangazo ya hivi karibuni:\n${orodha}`;
       }
@@ -149,7 +142,7 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "5") {
-      // MAOMBI YA UNUNUZI - mkulima anakubali/anakataa maombi
+      // MAOMBI YA UNUNUZI
       const maombiResult = await pool.query(
         "SELECT * FROM purchase_requests WHERE farmer_phone = $1 AND status = 'pending' ORDER BY tarehe DESC LIMIT 5",
         [phoneNumber]
@@ -200,13 +193,13 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "6") {
-      // WASIFU WANGU
+      // WASIFU WANGU (Imesafishwa kuondoa safu zisizokuwepo za 'active' na 'verified')
       const wasifu = await pool.query(
         "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1",
         [phoneNumber]
       );
       const matangazoYake = await pool.query(
-        "SELECT COUNT(*) FROM matangazo WHERE phone_number = $1 AND active = TRUE",
+        "SELECT COUNT(*) FROM matangazo WHERE phone_number = $1",
         [phoneNumber]
       );
       const maombiYake = await pool.query(
@@ -218,10 +211,9 @@ app.post("/ussd", async (req, res) => {
         response = `END Hujasajiliwa bado.\nRudi kwenye menyu, chagua:\n4. Jisajili`;
       } else {
         const w = wasifu.rows[0];
-        const hali = w.verified ? "✓ Imethibitishwa" : "Haijahthibitishwa";
         const matangazoIdadi = matangazoYake.rows[0].count;
         const maombiIdadi = maombiYake.rows[0].count;
-        response = `END Wasifu Wako:\nJina: ${w.jina}\nMkoa: ${w.mkoa}\nWilaya: ${w.wilaya}\nMatangazo: ${matangazoIdadi}\nMaombi: ${maombiIdadi}\nHali: ${hali}\nAnwani: soko-la-mkulima.onrender.com/mkulima/${phoneNumber}`;
+        response = `END Wasifu Wako:\nJina: ${w.jina}\nMkoa: ${w.mkoa}\nWilaya: ${w.wilaya}\nMatangazo Yako: ${matangazoIdadi}\nMaombi: ${maombiIdadi}\nAnwani: soko-la-mkulima.onrender.com/mkulima/${phoneNumber}`;
       }
     } else if (majibu[0] === "7") {
       // HALI YA HEWA
@@ -249,12 +241,11 @@ app.post("/ussd", async (req, res) => {
           if (!apiKey) {
             response = "END Huduma ya hali ya hewa haipatikani kwa sasa.";
           } else {
-           try {
-              // Tumia axios badala ya fetch kuzuia crash
+            try {
               const weatherRes = await axios.get(
                 `https://api.openweathermap.org/data/2.5/forecast?lat=${mkoa.lat}&lon=${mkoa.lon}&appid=${apiKey}&units=metric&cnt=2&lang=sw`
               );
-              const weatherData = weatherRes.data; // Axios inatoa data moja kwa moja hapa
+              const weatherData = weatherRes.data;
 
               if (weatherData.cod !== "200" && weatherData.cod !== 200) {
                 response = "END Tatizo la kupata hali ya hewa. Jaribu tena.";
@@ -280,7 +271,7 @@ app.post("/ussd", async (req, res) => {
       response = "END Chaguo si sahihi. Jaribu tena.";
     }
   } catch (err) {
-    console.error("Database error:", err.message);
+    console.error("Database error ya ukweli:", err.message);
     response = "END Samahani, kuna tatizo la mfumo. Jaribu tena baadaye.";
   }
 
