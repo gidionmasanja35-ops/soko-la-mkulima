@@ -10,6 +10,43 @@ const app = express(); // HAU PASWI KUSAHAU HUU MSTARI! Lazima uwe hapa.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// ---- KAZI YA KUTUMA SMS (Africa's Talking) ----
+async function tumaSMS(simu, ujumbe) {
+  try {
+    const username = process.env.AT_USERNAME; // "sandbox" ukiwa kwenye majaribio
+    const apiKey = process.env.AT_API_KEY;
+
+    if (!username || !apiKey) {
+      console.log("SMS haijatumwa - AT_USERNAME/AT_API_KEY hazijawekwa au hazisomeki");
+      return;
+    }
+
+    // Sandbox na live zina anwani tofauti za API
+    const url =
+      username === "sandbox"
+        ? "https://api.sandbox.africastalking.com/version1/messaging"
+        : "https://api.africastalking.com/version1/messaging";
+
+    const body = new URLSearchParams({
+      username,
+      to: simu,
+      message: ujumbe,
+    });
+
+    const smsRes = await axios.post(url, body, {
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "apiKey": apiKey,
+      },
+    });
+
+    console.log("SMS Matokeo:", smsRes.data);
+  } catch (smsErr) {
+    console.error("SMS Error ya ukweli:", smsErr.message);
+  }
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
