@@ -107,8 +107,9 @@ app.post("/ussd", async (req, res) => {
       }
     } else if (majibu[0] === "3") {
       // TAZAMA MATANGAZO (5 ya mwisho, yanayofanya kazi tu)
+  // TAZAMA MATANGAZO (5 ya mwisho ya uhakika)
       const result = await pool.query(
-        "SELECT zao, idadi, bei FROM matangazo WHERE active = TRUE AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY tarehe DESC LIMIT 5"
+        "SELECT zao, idadi, bei FROM matangazo ORDER BY tarehe DESC LIMIT 5"
       );
 
       if (result.rows.length === 0) {
@@ -248,12 +249,14 @@ app.post("/ussd", async (req, res) => {
           if (!apiKey) {
             response = "END Huduma ya hali ya hewa haipatikani kwa sasa.";
           } else {
-            try {
-              const weatherRes = await fetch(
+           try {
+              // Tumia axios badala ya fetch kuzuia crash
+              const weatherRes = await axios.get(
                 `https://api.openweathermap.org/data/2.5/forecast?lat=${mkoa.lat}&lon=${mkoa.lon}&appid=${apiKey}&units=metric&cnt=2&lang=sw`
               );
-              const weatherData = await weatherRes.json();
-              if (weatherData.cod !== "200") {
+              const weatherData = weatherRes.data; // Axios inatoa data moja kwa moja hapa
+
+              if (weatherData.cod !== "200" && weatherData.cod !== 200) {
                 response = "END Tatizo la kupata hali ya hewa. Jaribu tena.";
               } else {
                 const leo = weatherData.list[0];
@@ -266,8 +269,9 @@ app.post("/ussd", async (req, res) => {
                 };
                 response = `END Hali ya Hewa - ${mkoa.jina}\n\nLeo:\n${mvuaEmoji(leo.weather[0].description)} ${leo.weather[0].description}\nJoto: ${Math.round(leo.main.temp)}°C\nUnyevu: ${leo.main.humidity}%\n\nKesho:\n${mvuaEmoji(kesho.weather[0].description)} ${kesho.weather[0].description}\nJoto: ${Math.round(kesho.main.temp)}°C`;
               }
-            } catch {
-              response = "END Tatizo la mtandao. Jaribu tena baadaye.";
+            } catch (weatherErr) {
+              console.error("Weather API Error:", weatherErr.message);
+              response = "END Tatizo la mtandao wa hali ya hewa. Jaribu tena baadaye.";
             }
           }
         }
