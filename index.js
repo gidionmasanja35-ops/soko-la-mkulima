@@ -899,22 +899,38 @@ app.get("/api/takwimu", async (req, res) => {
 app.get("/api/matangazo", async (req, res) => {
   try {
     const { zao, mkoa } = req.query;
+    
+    // Tunasafisha query isome status = 'accepted' badala ya active = TRUE
     let query = `
       SELECT DISTINCT ON (m.phone_number, m.zao)
-        m.id, m.zao, m.idadi, m.bei, m.phone_number, m.tarehe,
-        w.jina, w.mkoa, w.wilaya, w.verified,
+        m.id, m.zao, m.idadi, m.bei, m.phone_number, m.tarehe, m.mkoa AS matangazo_mkoa,
+        w.jina, w.mkoa AS mkulima_mkoa, w.wilaya,
         (SELECT ROUND(AVG(r.nyota), 1) FROM ratings r WHERE r.farmer_phone = m.phone_number) AS wastani_rating
       FROM matangazo m
       LEFT JOIN wakulima w ON m.phone_number = w.phone_number
-      WHERE m.active = TRUE AND (m.expires_at IS NULL OR m.expires_at > NOW())
+      WHERE m.status = 'accepted'
     `;
+    
     const params = [];
-    if (zao) { params.push(zao); query += ` AND m.zao = $${params.length}`; }
-    if (mkoa) { params.push(mkoa); query += ` AND w.mkoa = $${params.length}`; }
+    
+    if (zao && zao.trim() !== "") { 
+      params.push(zao.toLowerCase().trim()); 
+      query += ` AND m.zao = $${params.length}`; 
+    }
+    
+    // Mkoa unaweza kuchujwa kutoka kwenye tangazo lenyewe (m.mkoa) au wasifu wa mkulima (w.mkoa)
+    if (mkoa && mkoa.trim() !== "") { 
+      params.push(mkoa.trim()); 
+      query += ` AND (LOWER(m.mkoa) = LOWER($${params.length}) OR LOWER(w.mkoa) = LOWER($${params.length}))`; 
+    }
+    
+    // ORDER BY lazima ianze na zile safu zilizopo kwenye DISTINCT ON ya PostgreSQL
     query += " ORDER BY m.phone_number, m.zao, m.tarehe DESC LIMIT 50";
+    
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
+    console.error("Error kwenye getMatangazo API:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -923,32 +939,51 @@ app.get("/api/matangazo", async (req, res) => {
 app.get("/api/mkulima/:simu", async (req, res) => {
   try {
     const simu = decodeURIComponent(req.params.simu);
+    
+    // 1. Vuta wasifu wa mkulima
     const wasifu = await pool.query(
-      "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1", [simu]
+      "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1", 
+      [simu]
     );
-    if (wasifu.rows.length === 0) return res.status(404).json({ error: "Mkulima hapatikani" });
+    if (wasifu.rows.length === 0) {
+      return res.status(404).json({ error: "Mkulima hapatikani" });
+    }
 
+    // 2. Vuta matangazo yake yaliyothibitishwa tu (Imerekebishwa kutoka active = TRUE kwenda status = 'accepted')
     const matangazo = await pool.query(
-      "SELECT * FROM matangazo WHERE phone_number = $1 AND active = TRUE ORDER BY tarehe DESC", [simu]
-    );
-    const maombi = await pool.query(
-      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1", [simu]
-    );
-    const kubaliwa = await pool.query(
-      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1 AND status = 'accepted'", [simu]
-    );
-    const rating = await pool.query(
-      "SELECT ROUND(AVG(nyota), 1) as wastani FROM ratings WHERE farmer_phone = $1", [simu]
+      "SELECT * FROM matangazo WHERE phone_number = $1 AND status = 'accepted' ORDER BY tarehe DESC", 
+      [simu]
     );
 
+    // 3. Hesabu ya maombi ya ununuzi
+    const maombi = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1", 
+      [simu]
+    );
+
+    // 4. Hesabu ya maombi yaliyokubaliwa
+    const kubaliwa = await pool.query(
+      "SELECT COUNT(*) FROM purchase_requests WHERE farmer_phone = $1 AND status = 'accepted'", 
+      [simu]
+    );
+
+    // 5. Hesabu ya Rating (Nyota)
+    const rating = await pool.query(
+      "SELECT ROUND(AVG(nyota), 1) as wastani FROM ratings WHERE farmer_phone = $1", 
+      [simu]
+    );
+
+    // Kurudisha majibu kamili kwenda kwenye Flutter App
     res.json({
       ...wasifu.rows[0],
       matangazo: matangazo.rows,
       maombi_count: parseInt(maombi.rows[0].count),
       kubaliwa_count: parseInt(kubaliwa.rows[0].count),
-      wastani_rating: rating.rows[0].wastani,
+      wastani_rating: rating.rows[0].wastani || "0.0", // Kama hana nyota iandike 0.0 badala ya null
     });
+
   } catch (err) {
+    console.error("Error kwenye profile API:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
