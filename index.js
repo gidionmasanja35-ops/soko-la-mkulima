@@ -896,13 +896,14 @@ app.get("/api/takwimu", async (req, res) => {
 });
 
 // GET /api/matangazo?zao=mahindi&mkoa=Dodoma
+// GET /api/matangazo?zao=mahindi&mkoa=Dodoma
 app.get("/api/matangazo", async (req, res) => {
   try {
     const { zao, mkoa } = req.query;
     
-    // Tunasafisha query isome status = 'accepted' badala ya active = TRUE
+    // Tumeondoa DISTINCT ON ili matangazo yote mapya yaonekane bila kupotea au kufichwa na ya zamani
     let query = `
-      SELECT DISTINCT ON (m.phone_number, m.zao)
+      SELECT 
         m.id, m.zao, m.idadi, m.bei, m.phone_number, m.tarehe, m.mkoa AS matangazo_mkoa,
         w.jina, w.mkoa AS mkulima_mkoa, w.wilaya,
         (SELECT ROUND(AVG(r.nyota), 1) FROM ratings r WHERE r.farmer_phone = m.phone_number) AS wastani_rating
@@ -913,24 +914,25 @@ app.get("/api/matangazo", async (req, res) => {
     
     const params = [];
     
+    // Kusafisha zao kuwa herufi ndogo ili kulingana na database kikamilifu
     if (zao && zao.trim() !== "") { 
-      params.push(zao.toLowerCase().trim()); 
-      query += ` AND m.zao = $${params.length}`; 
+      params.push(`%${zao.toLowerCase().trim()}%`); 
+      query += ` AND LOWER(m.zao) LIKE $${params.length}`; 
     }
     
-    // Mkoa unaweza kuchujwa kutoka kwenye tangazo lenyewe (m.mkoa) au wasifu wa mkulima (w.mkoa)
+    // Kusafisha mkoa ulingane vizuri
     if (mkoa && mkoa.trim() !== "") { 
-      params.push(mkoa.trim()); 
-      query += ` AND (LOWER(m.mkoa) = LOWER($${params.length}) OR LOWER(w.mkoa) = LOWER($${params.length}))`; 
+      params.push(`%${mkoa.toLowerCase().trim()}%`); 
+      query += ` AND (LOWER(m.mkoa) LIKE $${params.length} OR LOWER(w.mkoa) LIKE $${params.length})`; 
     }
     
-    // ORDER BY lazima ianze na zile safu zilizopo kwenye DISTINCT ON ya PostgreSQL
-    query += " ORDER BY m.phone_number, m.zao, m.tarehe DESC LIMIT 50";
+    // Sasa hivi tunapanga kwa tarehe ya sasa hivi (Jipya zaidi linaanza juu kabisa)
+    query += " ORDER BY m.tarehe DESC LIMIT 50";
     
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
-    console.error("Error kwenye getMatangazo API:", err.message);
+    console.error("Error kubwa kwenye getMatangazo API:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
