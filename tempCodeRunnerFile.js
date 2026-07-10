@@ -1,5 +1,5 @@
 // SOKO LA MKULIMA - Mfumo wa USSD kwa wakulima
-// Toleo hili linatumia DATABASE (PostgreSQL) badala ya data ya "hardcoded"
+// Toleo lililoboreshwa: Automatic Acceptance & Admin Tracking
 
 const express = require("express");
 const { Pool } = require("pg");
@@ -8,7 +8,7 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// Kuunganisha na database (DATABASE_URL inatoka kwenye Environment Variable ya Render)
+// Kuunganisha na database
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
@@ -28,10 +28,10 @@ app.post("/ussd", async (req, res) => {
 2. Tangaza mazao yako
 3. Tazama matangazo`;
     } else if (majibu[0] === "1") {
-      // ANGALIA BEI
+      // --- ANGALIA BEI ---
       if (majibu.length === 1) {
         const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
         );
         const mazao = result.rows.map((r) => r.zao);
         response =
@@ -39,7 +39,7 @@ app.post("/ussd", async (req, res) => {
           mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
       } else if (majibu.length === 2) {
         const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
         );
         const mazao = result.rows.map((r) => r.zao);
         const zao = mazao[parseInt(majibu[1]) - 1];
@@ -49,7 +49,7 @@ app.post("/ussd", async (req, res) => {
         } else {
           const mikoaResult = await pool.query(
             "SELECT mkoa FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
-            [zao]
+            [zao],
           );
           const mikoa = mikoaResult.rows.map((r) => r.mkoa);
           response =
@@ -58,14 +58,14 @@ app.post("/ussd", async (req, res) => {
         }
       } else if (majibu.length === 3) {
         const zaoResult = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
+          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
         );
         const mazao = zaoResult.rows.map((r) => r.zao);
         const zao = mazao[parseInt(majibu[1]) - 1];
 
         const mikoaResult = await pool.query(
           "SELECT mkoa, bei FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
-          [zao]
+          [zao],
         );
         const chaguo = mikoaResult.rows[parseInt(majibu[2]) - 1];
 
@@ -76,33 +76,75 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "2") {
-      // TANGAZA MAZAO
+      // --- TANGAZA MAZAO NA THIBITISHA BEI (AUTOMATIC) ---
       if (majibu.length === 1) {
-        response = "CON Andika jina la zao unalouza:";
+        response = "CON Andika jina la zao unalouza (mfano: mahindi):";
       } else if (majibu.length === 2) {
         response = "CON Andika idadi ya magunia:";
       } else if (majibu.length === 3) {
-        const zao = majibu[1];
-        const idadi = majibu[2];
+        // Mkulima ameweka zao na idadi, sasa tunamwomba mkoa ili tupate bei elekezi
+        response = "CON Andika mkoa uliopo (mfano: Dodoma):";
+      } else if (majibu.length === 4) {
+        const zao = majibu[1].toLowerCase().trim();
+        const idadi = majibu[2].trim();
+        const mkoa = majibu[3].trim();
 
-        await pool.query(
-          "INSERT INTO matangazo (zao, idadi, phone_number) VALUES ($1, $2, $3)",
-          [zao, idadi, phoneNumber]
+        // Tafuta bei ya mfano kutoka kwenye bei_mazao
+        const beiResult = await pool.query(
+          "SELECT bei FROM bei_mazao WHERE zao = $1 AND LOWER(mkoa) = LOWER($2) LIMIT 1",
+          [zao, mkoa],
         );
 
-        response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi}) limepokelewa.`;
+        // Kama bei haipo, weka bei ya kawaida (Default mfano 800)
+        const beiKilo = beiResult.rows.length > 0 ? beiResult.rows[0].bei : 800;
+        const beiGunia = beiKilo * 100; // Mfano gunia 1 ni kilo 100
+
+        // Muombe mkulima athibitishe kama anakubali bei hiyo elekezi ya soko
+        response = `CON Bei ya ${capitalize(zao)} ${mkoa} ni TZS ${beiKilo}/kilo (TZS ${beiGunia}/gunia). Je, unakubali kuuza kwa bei hii?
+1. Ndio, Nakubali
+2. Hapana, Kataa`;
+      } else if (majibu.length === 5) {
+        const zao = majibu[1].toLowerCase().trim();
+        const idadi = majibu[2].trim();
+        const mkoa = majibu[3].trim();
+        const thibitisho = majibu[4].trim();
+
+        // Tafuta bei tena kwa ajili ya kuihifadhi
+        const beiResult = await pool.query(
+          "SELECT bei FROM bei_mazao WHERE zao = $1 AND LOWER(mkoa) = LOWER($2) LIMIT 1",
+          [zao, mkoa],
+        );
+        const beiKilo = beiResult.rows.length > 0 ? beiResult.rows[0].bei : 800;
+        const beiGunia = beiKilo * 100;
+
+        let HaliYatangazo = "pending";
+        if (thibitisho === "1") {
+          HaliYatangazo = "accepted";
+          response = `END Asante! Tangazo lako la ${capitalize(zao)} limechapishwa rasmi Sokoni.`;
+        } else if (thibitisho === "2") {
+          HaliYatangazo = "rejected";
+          response = `END Tangazo lako limegaghiriwa kwa sababu umekataa bei ya soko.`;
+        } else {
+          response = `END Chaguo si sahihi. Tangazo lako limebaki kama Pending.`;
+        }
+
+        // Ingiza kwenye database ikiwa na STATUS halisi na BEI
+        await pool.query(
+          "INSERT INTO matangazo (zao, idadi, bei, phone_number, mkoa, status) VALUES ($1, $2, $3, $4, $5, $6)",
+          [zao, idadi, beiGunia, phoneNumber, mkoa, HaliYatangazo],
+        );
       }
     } else if (majibu[0] === "3") {
-      // TAZAMA MATANGAZO (5 ya mwisho)
+      // --- TAZAMA MATANGAZO (Yaliyokubalika tu yaani 'accepted') ---
       const result = await pool.query(
-        "SELECT zao, idadi FROM matangazo ORDER BY tarehe DESC LIMIT 5"
+        "SELECT zao, idadi, mkoa FROM matangazo WHERE status = 'accepted' ORDER BY tarehe DESC LIMIT 5",
       );
 
       if (result.rows.length === 0) {
-        response = "END Hakuna matangazo kwa sasa.";
+        response = "END Hakuna matangazo yaliyothibitishwa kwa sasa.";
       } else {
         const orodha = result.rows
-          .map((m) => `${m.zao} - magunia ${m.idadi}`)
+          .map((m) => `${capitalize(m.zao)} (${m.mkoa}) - magunia ${m.idadi}`)
           .join("\n");
         response = `END Matangazo ya hivi karibuni:\n${orodha}`;
       }
@@ -118,20 +160,18 @@ app.post("/ussd", async (req, res) => {
   res.send(response);
 });
 
-// Kazi ndogo ya kuandika herufi kubwa mwanzoni mwa neno
 function capitalize(neno) {
   return neno.charAt(0).toUpperCase() + neno.slice(1);
 }
 
 app.get("/", (req, res) => {
-  res.send("Soko la Mkulima USSD server inafanya kazi vizuri! (Toleo la Database)");
+  res.send("Server ya Soko la Mkulima ipo hai!");
 });
 
-// ROUTE YA MUDA: kutengeneza majedwali ya database (sasa imefungwa na "siri")
-// Kuitumia: https://yoursite.onrender.com/setup-database?siri=SIRI_YAKO
+// --- REKEBISHA DATABASE YOTE MARA MOJA ---
 app.get("/setup-database", async (req, res) => {
   if (req.query.siri !== process.env.ADMIN_SECRET) {
-    return res.status(403).send("Hairuhusiwi. Siri si sahihi.");
+    return res.status(403).send("Hairuhusiwi.");
   }
   try {
     await pool.query(`
@@ -144,89 +184,102 @@ app.get("/setup-database", async (req, res) => {
       );
     `);
 
+    // Tunatengeneza upya matangazo iwe na column ya 'status' na 'mkoa' na 'bei'
+    await pool.query("DROP TABLE IF EXISTS matangazo;");
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS matangazo (
+      CREATE TABLE matangazo (
         id SERIAL PRIMARY KEY,
         zao VARCHAR(100) NOT NULL,
         idadi VARCHAR(50) NOT NULL,
+        bei INTEGER NOT NULL,
         phone_number VARCHAR(20) NOT NULL,
+        mkoa VARCHAR(50) NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
 
-    await pool.query("DELETE FROM bei_mazao");
-    await pool.query(`
-      INSERT INTO bei_mazao (zao, mkoa, bei) VALUES
-      ('mahindi', 'Dodoma', 800),
-      ('mahindi', 'Mbeya', 750),
-      ('mahindi', 'Morogoro', 820),
-      ('mpunga', 'Mbeya', 1200),
-      ('mpunga', 'Morogoro', 1300),
-      ('mpunga', 'Shinyanga', 1100),
-      ('maharage', 'Dodoma', 1800),
-      ('maharage', 'Songwe', 1700);
-    `);
-
-    res.send("✅ Database imetengenezwa kikamilifu! Sasa unaweza kufuta route hii kwenye code.");
+    res.send("✅ Database imesafishwa na kusetiwa upya kwa mafanikio!");
   } catch (err) {
     res.status(500).send("❌ Tatizo: " + err.message);
   }
 });
 
-// ---- UKURASA WA ADMIN: kuona na kubadilisha bei bila kuandika code ----
-// Fungua: https://yoursite.onrender.com/admin?siri=SIRI_YAKO
+// ---- UKURASA WA ADMIN (BEI + MATANGAZO YOTE AUTOMATIC) ----
 app.get("/admin", async (req, res) => {
   if (req.query.siri !== process.env.ADMIN_SECRET) {
-    return res.status(403).send("Hairuhusiwi. Ongeza ?siri=SIRI_YAKO mwishoni mwa URL.");
+    return res.status(403).send("Hairuhusiwi.");
   }
   try {
-    const result = await pool.query("SELECT * FROM bei_mazao ORDER BY zao, mkoa");
+    const beiResult = await pool.query(
+      "SELECT * FROM bei_mazao ORDER BY zao, mkoa",
+    );
+    const matangazoResult = await pool.query(
+      "SELECT * FROM matangazo ORDER BY tarehe DESC",
+    );
     const safeSiri = encodeURIComponent(req.query.siri);
 
-    const rows = result.rows
+    const beiRows = beiResult.rows
       .map(
         (r) => `
         <tr>
-          <td>${r.zao}</td>
-          <td>${r.mkoa}</td>
-          <td>${r.bei}</td>
+          <td>${r.zao}</td><td>${r.mkoa}</td><td>${r.bei}</td>
           <td>
             <form method="POST" action="/admin/futa?siri=${safeSiri}" style="display:inline">
-              <input type="hidden" name="id" value="${r.id}">
-              <button type="submit">Futa</button>
+              <input type="hidden" name="id" value="${r.id}"><button type="submit">Futa</button>
             </form>
           </td>
-        </tr>`
+        </tr>`,
       )
+      .join("");
+
+    const matangazoRows = matangazoResult.rows
+      .map((m) => {
+        let rangi = "#f59e0b"; // Njano kwa pending
+        if (m.status === "accepted") rangi = "#10b981"; // Kijani
+        if (m.status === "rejected") rangi = "#ef4444"; // Nyekundu
+
+        return `
+        <tr>
+          <td>${m.phone_number}</td><td>${capitalize(m.zao)}</td><td>${m.idadi}</td><td>TZS ${m.bei}</td><td>${m.mkoa}</td>
+          <td style="color: white; background-color: ${rangi}; font-weight: bold; text-align: center;">
+            ${m.status.toUpperCase()}
+          </td>
+        </tr>`;
+      })
       .join("");
 
     res.send(`
       <html>
-      <head>
-        <title>Admin - Soko la Mkulima</title>
+      <head><title>Admin Dashboard</title>
         <style>
-          body { font-family: sans-serif; max-width: 700px; margin: 40px auto; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+          body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 40px; }
+          th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
+          th { background-color: #f3f4f6; }
           input { padding: 6px; margin-right: 5px; }
-          button { padding: 6px 12px; }
+          button { padding: 6px 12px; cursor: pointer; }
         </style>
       </head>
       <body>
-        <h2>Simamia Bei za Mazao</h2>
-
-        <h3>Ongeza bei mpya</h3>
+        <h2>Simamia Mfumo wa Soko la Mkulima</h2>
+        
+        <h3>1. Bei za Mazao Elekezi</h3>
         <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
-          <input name="zao" placeholder="Zao (mfano: mahindi)" required>
-          <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
-          <input name="bei" placeholder="Bei (mfano: 800)" type="number" required>
-          <button type="submit">Ongeza</button>
+          <input name="zao" placeholder="Zao" required>
+          <input name="mkoa" placeholder="Mkoa" required>
+          <input name="bei" placeholder="Bei" type="number" required>
+          <button type="submit">Ongeza Bei</button>
         </form>
-
-        <h3>Bei zilizopo</h3>
         <table>
-          <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>
-          ${rows}
+          <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS/Kilo)</th><th>Kitendo</th></tr>
+          ${beiRows}
+        </table>
+
+        <h3>2. Hali ya Matangazo ya Wakulima (Orodha ya USSD)</h3>
+        <table>
+          <tr><th>Namba ya Mkulima</th><th>Zao</th><th>Idadi (Magunia)</th><th>Bei ya Jumla</th><th>Mkoa</th><th>Hali (Status)</th></tr>
+          ${matangazoRows}
         </table>
       </body>
       </html>
@@ -237,21 +290,19 @@ app.get("/admin", async (req, res) => {
 });
 
 app.post("/admin/ongeza", async (req, res) => {
-  if (req.query.siri !== process.env.ADMIN_SECRET) {
+  if (req.query.siri !== process.env.ADMIN_SECRET)
     return res.status(403).send("Hairuhusiwi.");
-  }
   const { zao, mkoa, bei } = req.body;
   await pool.query(
     "INSERT INTO bei_mazao (zao, mkoa, bei) VALUES ($1, $2, $3)",
-    [zao.toLowerCase().trim(), mkoa.trim(), bei]
+    [zao.toLowerCase().trim(), mkoa.trim(), bei],
   );
   res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
 });
 
 app.post("/admin/futa", async (req, res) => {
-  if (req.query.siri !== process.env.ADMIN_SECRET) {
+  if (req.query.siri !== process.env.ADMIN_SECRET)
     return res.status(403).send("Hairuhusiwi.");
-  }
   await pool.query("DELETE FROM bei_mazao WHERE id = $1", [req.body.id]);
   res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
 });
