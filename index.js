@@ -60,10 +60,9 @@ app.post("/ussd", async (req, res) => {
   try {
     if (text === "" || text === undefined) {
       // HATUA YA 0: Menyu ya juu kabisa
-      
       response = `CON Karibu Soko la Mkulima\n1. Angalia Bei za Zao\n2. Tangaza Mazao Yako\n3. Tazama Matangazo\n4. Jisajili\n5. Maombi ya Ununuzi\n6. Wasifu Wangu\n7. Hali ya Hewa`;
     } else if (majibu[0] === "1") {
-      // ANGALIA BEI
+      // --- ANGALIA BEI ---
       if (majibu.length === 1) {
         const result = await pool.query(
           "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao"
@@ -111,7 +110,7 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "2") {
-      // TANGAZA MAZAO
+      // --- TANGAZA MAZAO (Imerekebishwa kuwepo na Automatic Confirmation) ---
       if (majibu.length === 1) {
         response = "CON Andika jina la zao unalouza:";
       } else if (majibu.length === 2) {
@@ -119,31 +118,57 @@ app.post("/ussd", async (req, res) => {
       } else if (majibu.length === 3) {
         response = "CON Weka bei kwa gunia (TZS):";
       } else if (majibu.length === 4) {
+        response = "CON Andika mkoa uliopo sasa (mfano: Dodoma):";
+      } else if (majibu.length === 5) {
+        // Hapa mkulima amejaza data zote, sasa anapewa muhtasari ili athibitishe kabla haijahifadhiwa
         const zao = majibu[1];
         const idadi = majibu[2];
         const bei = majibu[3];
+        const mkoa = majibu[4];
 
+        response = `CON Thibitisha Tangazo Lako:\nZao: ${capitalize(zao)}\nIdadi: ${idadi} magunia\nBei: TZS ${bei}/gunia\nMkoa: ${mkoa}\n\n1. Kubali na Chapisha\n2. Ghairi Tangazo`;
+      } else if (majibu.length === 6) {
+        // Hapa ndipo mkulima amebonyeza 1 (Kubali) au 2 (Ghairi)
+        const zao = majibu[1].toLowerCase().trim();
+        const idadi = majibu[2].trim();
+        const bei = majibu[3].trim();
+        const mkoa = majibu[4].trim();
+        const thibitisho = majibu[5].trim();
+
+        let HaliYaTangazo = "pending";
+
+        if (thibitisho === "1") {
+          HaliYaTangazo = "accepted";
+          response = `END Asante! Tangazo lako la ${capitalize(zao)} (magunia ${idadi} @ TZS ${bei}) limekubaliwa na kuwekwa sokoni kikamilifu.`;
+          
+          // Tuma SMS ya uthibitisho kwa mkulima kwa kuwa amekubali
+          await tumaSMS(
+            phoneNumber,
+            `Tangazo lako la ${capitalize(zao)}\n${idadi} magunia @ TZS ${bei} limechapishwa Sokoni rasmi.`
+          );
+        } else if (thibitisho === "2") {
+          HaliYaTangazo = "rejected";
+          response = "END Tangazo lako limeghairiwa na halitaonekana kwa wanunuzi.";
+        } else {
+          response = "END Chaguo si sahihi. Tangazo limefutwa.";
+          res.set("Content-Type", "text/plain");
+          return res.send(response);
+        }
+
+        // Ingiza data rasmi ikiwa na MKOA na ile STATUS ya ukweli ('accepted' au 'rejected')
         await pool.query(
-          "INSERT INTO matangazo (zao, idadi, bei, phone_number) VALUES ($1, $2, $3, $4)",
-          [zao, idadi, bei, phoneNumber]
+          "INSERT INTO matangazo (zao, idadi, bei, phone_number, mkoa, status) VALUES ($1, $2, $3, $4, $5, $6)",
+          [zao, idadi, bei, phoneNumber, mkoa, HaliYaTangazo]
         );
-
-        // Tuma SMS ya uthibitisho kwa mkulima
-        await tumaSMS(
-          phoneNumber,
-          `Tangazo lako la ${capitalize(zao)}\n${idadi} magunia @ TZS ${bei} limepokelewa.`
-        );
-
-        response = `END Asante! Tangazo lako la ${zao} (magunia ${idadi} @ TZS ${bei}) limepokelewa.`;
       }
     } else if (majibu[0] === "3") {
-      // TAZAMA MATANGAZO (Imesafishwa SQL kikamilifu)
+      // --- TAZAMA MATANGAZO (Yaliyokubalika tu yaani 'accepted') ---
       const result = await pool.query(
-        "SELECT zao, idadi, bei FROM matangazo ORDER BY tarehe DESC LIMIT 5"
+        "SELECT zao, idadi, bei FROM matangazo WHERE status = 'accepted' ORDER BY tarehe DESC LIMIT 5"
       );
 
       if (result.rows.length === 0) {
-        response = "END Hakuna matangazo kwa sasa.";
+        response = "END Hakuna matangazo yaliyothibitishwa kwa sasa.";
       } else {
         const orodha = result.rows
           .map((m) => `${capitalize(m.zao)} - magunia ${m.idadi} @ TZS ${m.bei || "?"}`)
@@ -151,13 +176,13 @@ app.post("/ussd", async (req, res) => {
         response = `END Matangazo ya hivi karibuni:\n${orodha}`;
       }
     } else if (majibu[0] === "4") {
-      // JISAJILI - usajili wa mkulima
+      // --- JISAJILI ---
       if (majibu.length === 1) {
-        response = "CON Weka Jina Lako";
+        response = "CON Weka Jina Lako:";
       } else if (majibu.length === 2) {
-        response = "CON Mkoa wako";
+        response = "CON Mkoa wako:";
       } else if (majibu.length === 3) {
-        response = "CON Wilaya yako";
+        response = "CON Wilaya yako:";
       } else if (majibu.length === 4) {
         const jina = majibu[1];
         const mkoa = majibu[2];
@@ -178,21 +203,18 @@ app.post("/ussd", async (req, res) => {
           response = "END Umesajiliwa Kikamilifu";
         }
       }
-   } else if (majibu[0] === "5") {
-      // MAOMBI YA UNUNUZI YA KIMKOA - Mkulima anaona maombi ya mkoa wake
-      
-      // 1. Tafuta mkoa wa mkulima anayetumia USSD kwa sasa
+    } else if (majibu[0] === "5") {
+      // --- MAOMBI YA UNUNUZI YA KIMKOA ---
       const mkulimaResult = await pool.query(
         "SELECT mkoa FROM wakulima WHERE phone_number = $1",
         [phoneNumber]
       );
 
-     if (mkulimaResult.rows.length === 0) {
+      if (mkulimaResult.rows.length === 0) {
         response = "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
       } else {
         const mkoaWaMkulima = mkulimaResult.rows[0].mkoa;
 
-        // 2. Vuta maombi yote yanayolingana na mkoa wa huyu mkulima kutoka kwenye BUYER_REQUESTS
         const maombiResult = await pool.query(
           "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 ORDER BY id DESC LIMIT 5",
           [`%${mkoaWaMkulima}%`]
@@ -214,18 +236,16 @@ app.post("/ussd", async (req, res) => {
           } else {
             response = `CON ${capitalize(ombiTeule.zao)} - magunia ${ombiTeule.idadi || "?"}\n1. Kubali (Chukua Dili)\n2. Kataa`;
           }
-       } else if (majibu.length === 3) {
+        } else if (majibu.length === 3) {
           const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
           if (!ombiTeule) {
             response = "END Chaguo si sahihi. Jaribu tena.";
           } else if (majibu[2] === "1") {
-            // 1. Mkulima akikubali, tunalifuta ombi kwenye buyer_requests ili lisionekane kwa wakulima wengine (Dili limechukuliwa)
             await pool.query(
               "DELETE FROM buyer_requests WHERE id = $1",
               [ombiTeule.id]
             );
             
-            // 2. Tuma SMS kwa mnunuzi (Kumbuka kutumia ombiTeule.phone_number kulingana na jedwali lako)
             await tumaSMS(
               ombiTeule.phone_number,
               `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)} mkoani ${mkoaWaMkulima}.\nMpigie sasa: ${phoneNumber}`
@@ -240,7 +260,7 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "6") {
-      // WASIFU WANGU (Imesafishwa kuondoa safu zisizokuwepo za 'active' na 'verified')
+      // --- WASIFU WANGU ---
       const wasifu = await pool.query(
         "SELECT * FROM wakulima WHERE phone_number = $1 ORDER BY tarehe ASC LIMIT 1",
         [phoneNumber]
@@ -263,7 +283,7 @@ app.post("/ussd", async (req, res) => {
         response = `END Wasifu Wako:\nJina: ${w.jina}\nMkoa: ${w.mkoa}\nWilaya: ${w.wilaya}\nMatangazo Yako: ${matangazoIdadi}\nMaombi: ${maombiIdadi}\nAnwani: soko-la-mkulima.onrender.com/mkulima/${phoneNumber}`;
       }
     } else if (majibu[0] === "7") {
-      // HALI YA HEWA
+      // --- HALI YA HEWA ---
       const mikoaTZ = {
         "1": { jina: "Dar es Salaam", lat: -6.8, lon: 39.28 },
         "2": { jina: "Dodoma", lat: -6.17, lon: 35.74 },
