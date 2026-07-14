@@ -244,7 +244,7 @@ app.post("/ussd", async (req, res) => {
 
         // ILIVYO SASA (Salama zaidi):
         const maombiResult = await pool.query(
-          "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 AND verified = TRUE ORDER BY id DESC LIMIT 5",
+          "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 ORDER BY id DESC LIMIT 5",
           [`%${mkoaWaMkulima}%`],
         );
 
