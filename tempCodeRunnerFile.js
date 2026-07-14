@@ -217,6 +217,12 @@ app.get("/admin", async (req, res) => {
     const matangazoResult = await pool.query(
       "SELECT * FROM matangazo ORDER BY tarehe DESC",
     );
+    
+    // 1. VUTA DATA YA MAOMBI YA WANUNUZI (BUYER REQUESTS) KUTOKA DATABASE
+    const maombiResult = await pool.query(
+      "SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 20",
+    );
+
     const safeSiri = encodeURIComponent(req.query.siri);
 
     const beiRows = beiResult.rows
@@ -226,7 +232,7 @@ app.get("/admin", async (req, res) => {
           <td>${r.zao}</td><td>${r.mkoa}</td><td>${r.bei}</td>
           <td>
             <form method="POST" action="/admin/futa?siri=${safeSiri}" style="display:inline">
-              <input type="hidden" name="id" value="${r.id}"><button type="submit">Futa</button>
+              <input type="hidden" name="id" value="${r.id}"><button type="submit" style="color:red; cursor:pointer;">Futa</button>
             </form>
           </td>
         </tr>`,
@@ -249,38 +255,68 @@ app.get("/admin", async (req, res) => {
       })
       .join("");
 
+    // 2. TENGENEZA SAFA (ROWS) ZA HTML KWA AJILI YA MAOMBI YA WANUNUZI
+    const maombiRows = maombiResult.rows
+      .map(
+        (m) => `
+        <tr>
+          <td>${m.phone_number}</td>
+          <td>${capitalize(m.zao)}</td>
+          <td>${m.idadi}</td>
+          <td>${m.mkoa}</td>
+          <td>${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</td>
+        </tr>`,
+      )
+      .join("");
+
     res.send(`
       <html>
       <head><title>Admin Dashboard</title>
         <style>
-          body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 40px; }
+          body { font-family: sans-serif; max-width: 1000px; margin: 40px auto; padding: 0 20px; background-color: #f9fafb; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 40px; background-color: #white; }
           th, td { border: 1px solid #ccc; padding: 10px; text-align: left; }
           th { background-color: #f3f4f6; }
           input { padding: 6px; margin-right: 5px; }
           button { padding: 6px 12px; cursor: pointer; }
+          .container { background: #ffffff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         </style>
       </head>
       <body>
-        <h2>Simamia Mfumo wa Soko la Mkulima</h2>
-        
-        <h3>1. Bei za Mazao Elekezi</h3>
-        <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
-          <input name="zao" placeholder="Zao" required>
-          <input name="mkoa" placeholder="Mkoa" required>
-          <input name="bei" placeholder="Bei" type="number" required>
-          <button type="submit">Ongeza Bei</button>
-        </form>
-        <table>
-          <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS/Kilo)</th><th>Kitendo</th></tr>
-          ${beiRows}
-        </table>
+        <div class="container">
+          <h2>🌱 Simamia Mfumo wa Soko la Mkulima</h2>
+          <hr style="margin-bottom: 25px;" />
+          
+          <h3>1. Bei za Mazao Elekezi</h3>
+          <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
+            <input name="zao" placeholder="Zao" required>
+            <input name="mkoa" placeholder="Mkoa" required>
+            <input name="bei" placeholder="Bei" type="number" required>
+            <button type="submit">Ongeza Bei</button>
+          </form>
+          <table>
+            <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS/Kilo)</th><th>Kitendo</th></tr>
+            ${beiRows}
+          </table>
 
-        <h3>2. Hali ya Matangazo ya Wakulima (Orodha ya USSD)</h3>
-        <table>
-          <tr><th>Namba ya Mkulima</th><th>Zao</th><th>Idadi (Magunia)</th><th>Bei ya Jumla</th><th>Mkoa</th><th>Hali (Status)</th></tr>
-          ${matangazoRows}
-        </table>
+          <h3>2. Maombi ya Ununuzi ya Jumla (Kutoka Flutter kwenda USSD namba 5)</h3>
+          <table>
+            <tr style="background-color: #e5e7eb;">
+              <th>Namba ya Mnunuzi</th>
+              <th>Zao Linalohitajika</th>
+              <th>Idadi (Magunia)</th>
+              <th>Mkoa Husika</th>
+              <th>Tarehe ya Ombi</th>
+            </tr>
+            ${maombiRows ? maombiRows : '<tr><td colspan="5" style="text-align:center; color:#6b7280;">Hakuna maombi ya jumla kutoka kwa wanunuzi kwa sasa.</td></tr>'}
+          </table>
+
+          <h3>3. Hali ya Matangazo ya Wakulima (Orodha ya USSD)</h3>
+          <table>
+            <tr><th>Namba ya Mkulima</th><th>Zao</th><th>Idadi (Magunia)</th><th>Bei ya Gunia</th><th>Mkoa</th><th>Hali (Status)</th></tr>
+            ${matangazoRows}
+          </table>
+        </div>
       </body>
       </html>
     `);
