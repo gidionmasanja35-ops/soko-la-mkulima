@@ -22,6 +22,8 @@ async function setup() {
       );
     `);
 
+   // ... sehemu ya juu ya faili lako inabaki vilevile ...
+
     console.log("Inafuta na kutengeneza upya jedwali la matangazo...");
     // Tunafuta la zamani ili muundo mpya uchukue nafasi
     await pool.query("DROP TABLE IF EXISTS matangazo;"); 
@@ -30,13 +32,17 @@ async function setup() {
         id SERIAL PRIMARY KEY,
         zao VARCHAR(100) NOT NULL,
         idadi VARCHAR(50) NOT NULL,
-        bei INTEGER NOT NULL,               -- Column ya bei sasa ipo rasmi!
+        bei INTEGER NOT NULL,               -- Column ya bei
         phone_number VARCHAR(20) NOT NULL,
+        mkoa VARCHAR(50) NOT NULL,          -- column ya mkoa (IMEONGEZWA)
+        status VARCHAR(20) DEFAULT 'pending',-- column ya status (IMEONGEZWA)
         active BOOLEAN DEFAULT TRUE,        -- Inahitajika kwenye USSD (Tazama Matangazo)
-        expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '30 days'), -- Tangazo lile dumu siku 30
+        expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '30 days'), -- Tangazo lidumu siku 30
         tarehe TIMESTAMP DEFAULT NOW()
       );
     `);
+
+// ... sehemu ya chini ya faili lako inabaki vilevile ...
 
     console.log("Inaweka bei za mfano (seed data)...");
     await pool.query("DELETE FROM bei_mazao");
