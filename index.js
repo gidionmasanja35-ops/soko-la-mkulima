@@ -159,9 +159,26 @@ app.post("/ussd", async (req, res) => {
         }
 
         // Ingiza data rasmi ikiwa na MKOA na ile STATUS ya ukweli ('accepted' au 'rejected')
+        // 1. Hakikisha bei inasafishwa na inabadilishwa kuwa namba kamili (Integer)
+        // Hii inaondoa herufi zote zisizokuwa namba (kama mkulima aliandika "30,000" au "30000 ")
+        const beiSafi = parseInt(bei.replace(/[^0-9]/g, ""), 10) || 0;
+
+        // 2. Safisha maandishi mengine yawe kwenye herufi ndogo na kuondoa nafasi zilizoachwa mwanzoni/mwishoni
+        const zaoSafi = zao.toLowerCase().trim();
+        const mkoaSafi = mkoa.trim();
+        const idadiSafi = idadi.trim();
+
         await pool.query(
-          "INSERT INTO matangazo (zao, idadi, bei, phone_number, mkoa, status) VALUES ($1, $2, $3, $4, $5, $6)",
-          [zao, idadi, bei, phoneNumber, mkoa, HaliYaTangazo],
+          "INSERT INTO matangazo (zao, idadi, bei, phone_number, mkoa, status, active) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+          [
+            zaoSafi,
+            idadiSafi,
+            beiSafi,
+            phoneNumber,
+            mkoaSafi,
+            HaliYaTangazo,
+            HaliYaTangazo === "accepted", // Hii inaweka TRUE kama ni accepted, au FALSE kama ni pending
+          ],
         );
       }
     } else if (majibu[0] === "3") {
@@ -1610,7 +1627,7 @@ app.get("/admin", async (req, res) => {
     const matangazoResult = await pool.query(
       "SELECT * FROM matangazo ORDER BY tarehe DESC",
     );
-   const requestsResult = await pool.query(`
+    const requestsResult = await pool.query(`
   SELECT *
   FROM purchase_requests
   ORDER BY tarehe DESC
@@ -1820,10 +1837,10 @@ app.get("/admin", async (req, res) => {
       )
       .join("");
 
-   const requestsRows = requestsResult.rows
-  .slice(0, 8)
-  .map(
-    (b) => `
+    const requestsRows = requestsResult.rows
+      .slice(0, 8)
+      .map(
+        (b) => `
       <tr>
         <td>${capitalize(b.zao)}</td>
         <td>${b.idadi}</td>
@@ -1834,13 +1851,13 @@ app.get("/admin", async (req, res) => {
             b.status === "accepted"
               ? "<span class='badge badge-success'>Accepted</span>"
               : b.status === "rejected"
-              ? "<span class='badge badge-danger'>Rejected</span>"
-              : "<span class='badge badge-pending'>Pending</span>"
+                ? "<span class='badge badge-danger'>Rejected</span>"
+                : "<span class='badge badge-pending'>Pending</span>"
           }
         </td>
       </tr>`,
-  )
-  .join("");
+      )
+      .join("");
 
     res.send(`
       <!DOCTYPE html>
