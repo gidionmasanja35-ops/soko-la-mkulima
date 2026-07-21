@@ -51,7 +51,6 @@ async function tumaSMS(simu, ujumbe) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
 });
 
 app.post("/ussd", async (req, res) => {
