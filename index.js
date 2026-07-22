@@ -51,6 +51,7 @@ async function tumaSMS(simu, ujumbe) {
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
 app.post("/ussd", async (req, res) => {
@@ -1841,19 +1842,18 @@ app.get("/admin", async (req, res) => {
       .map(
         (b) => `
       <tr>
-        <td>${capitalize(b.zao)}</td>
-        <td>${b.idadi}</td>
-        <td>${b.mkoa}</td>
+        <td>${capitalize(b.zao || '-')}</td>
+        <td>${b.idadi || '-'}</td>
+        <td>${b.buyer_phone || '-'}</td>
+        <td>${b.farmer_phone || '-'}</td>
         <td>${new Date(b.tarehe).toLocaleDateString("sw-TZ")}</td>
-        <td>
-          ${
-            b.status === "accepted"
-              ? "<span class='badge badge-success'>Accepted</span>"
-              : b.status === "rejected"
-                ? "<span class='badge badge-danger'>Rejected</span>"
-                : "<span class='badge badge-pending'>Pending</span>"
-          }
-        </td>
+        <td>${
+          b.status === "accepted"
+            ? "<span class='badge badge-ok'>✓ Accepted</span>"
+            : b.status === "rejected"
+              ? "<span class='badge' style='background:#FDEDEC;color:#C0392B'>✗ Rejected</span>"
+              : "<span class='badge badge-pending'>⏳ Pending</span>"
+        }</td>
       </tr>`,
       )
       .join("");
@@ -2240,8 +2240,8 @@ app.get("/admin", async (req, res) => {
             <div class="panel">
               <h3>Maombi ya Wanunuzi ya Hivi Karibuni</h3>
               <table>
-                <tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Tarehe</th><th>Hali</th></tr>
-                ${requestsRows || "<tr><td colspan='5'>Hakuna ombi bado.</td></tr>"}
+                <tr><th>Zao</th><th>Kiasi</th><th>Simu ya Mnunuzi</th><th>Simu ya Mkulima</th><th>Tarehe</th><th>Hali</th></tr>
+                ${requestsRows || "<tr><td colspan='6'>Hakuna ombi bado.</td></tr>"}
               </table>
             </div>
           </div>
