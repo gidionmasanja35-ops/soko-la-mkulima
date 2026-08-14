@@ -344,25 +344,18 @@ app.post("/ussd", async (req, res) => {
         }
       }
     } else if (majibu[0] === "5") {
-      // --- MAOMBI YA UNUNUZI YA KIMKOA ---
-      const mkulimaResult = await pool.query(
-        "SELECT mkoa FROM wakulima WHERE phone_number = $1",
-        [phoneNumber],
-      );
+      // --- OPTION 5: MAOMBI YA UNUNUZI (Chuja maombi ya PENDING pekee) ---
+      const mkulimaResult = await pool.query("SELECT mkoa FROM wakulima WHERE phone_number = $1", [phoneNumber]);
 
       if (mkulimaResult.rows.length === 0) {
-        response =
-          "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
+        response = "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
       } else {
         const mkoaWaMkulima = mkulimaResult.rows[0].mkoa;
-
-        // ILIVYOKUWA ZAMANI:
-        // const maombiResult = await pool.query("SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 ORDER BY id DESC LIMIT 5", ...);
-
-        // ILIVYO SASA (Salama zaidi):
+        
+        // 1. CHUJA: Chukua maombi YALIYO PENDING PEKEE ili yaliyokubaliwa/kukatwa yaondoke kwenye list
         const maombiResult = await pool.query(
-          "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 ORDER BY id DESC LIMIT 5",
-          [`%${mkoaWaMkulima}%`],
+          "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 AND COALESCE(status, 'pending') = 'pending' ORDER BY id DESC LIMIT 5",
+          [`%${mkoaWaMkulima}%`]
         );
 
         if (majibu.length === 1) {
@@ -370,49 +363,52 @@ app.post("/ussd", async (req, res) => {
             response = `END Hakuna maombi mapya ya ununuzi kwa mkoa wa ${mkoaWaMkulima} kwa sasa.`;
           } else {
             const orodha = maombiResult.rows
-              .map(
-                (m, i) =>
-                  `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`,
-              )
+              .map((m, i) => `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`)
               .join("\n");
             response = `CON Maombi Mkoa wa ${mkoaWaMkulima}:\n${orodha}\nChagua namba:`;
           }
         } else if (majibu.length === 2) {
-          const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
+          const index = parseInt(majibu[1]) - 1;
+          const ombiTeule = maombiResult.rows[index];
+
           if (!ombiTeule) {
             response = "END Chaguo si sahihi. Jaribu tena.";
           } else {
             response = `CON ${capitalize(ombiTeule.zao)} - magunia ${ombiTeule.idadi || "?"}\n1. Kubali (Chukua Dili)\n2. Kataa`;
           }
         } else if (majibu.length === 3) {
-          const ombiTeule = maombiResult.rows[parseInt(majibu[1]) - 1];
+          const index = parseInt(majibu[1]) - 1;
+          const ombiTeule = maombiResult.rows[index];
+
           if (!ombiTeule) {
-            response = "END Chaguo si sahihi. Jaribu tena.";
+            response = "END Ombi hili halipatikani au limeshajibiwa.";
           } else if (majibu[2] === "1") {
+            // UPDATE status kwenye database kwa kutumia ID halisi ya ombi
             await pool.query(
               "UPDATE buyer_requests SET status = 'accepted' WHERE id = $1",
-              [ombiTeule.id],
+              [ombiTeule.id]
             );
 
+            // Tuma SMS kwa Mnunuzi
             await tumaSMS(
               ombiTeule.phone_number,
-              `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)}.\nMpigie sasa: ${phoneNumber}`,
+              `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)}.\nMpigie sasa: ${phoneNumber}`
             );
 
-            response =
-              "END Hongera! Umekubali dili hili. Mnunuzi amejulishwa namba yako ya simu.";
+            response = "END Hongera! Umekubali dili hili. Ombi limeondolewa kwenye orodha na Mnunuzi amejulishwa.";
           } else if (majibu[2] === "2") {
+            // UPDATE status kuwa rejected
             await pool.query(
               "UPDATE buyer_requests SET status = 'rejected' WHERE id = $1",
-              [ombiTeule.id],
+              [ombiTeule.id]
             );
 
             await tumaSMS(
               ombiTeule.phone_number,
-              `Samahani, mkulima amekataa ombi lako la ${capitalize(ombiTeule.zao)}.`,
+              `Samahani, mkulima amekataa ombi lako la ${capitalize(ombiTeule.zao)}.`
             );
 
-            response = "END Umekataa ombi. Mnunuzi amejulishwa.";
+            response = "END Umekataa ombi hili. Limeondolewa kwenye orodha yako.";
           } else {
             response = "END Chaguo si sahihi. Jaribu tena.";
           }
