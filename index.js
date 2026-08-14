@@ -6,17 +6,10 @@ const axios = require("axios");
 const express = require("express");
 const { Pool } = require("pg");
 const { GoogleAuth } = require("google-auth-library");
-
 const app = express(); // HAU PASWI KUSAHAU HUU MSTARI! Lazima uwe hapa.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-
-const axios = require("axios");
-
-// ONGOZA APPS / CODE ZAKO ZINGINE HAPA (Express setup, DB connection, n.k.)
-const app = express();
-app.use(express.json());
 
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
