@@ -19,9 +19,7 @@ const axios = require("axios");
 const app = express();
 app.use(express.json());
 
-// ============================================================
-// FCM V1 NOTIFICATION FUNCTION (Bila admin wala serviceAccountKey)
-// ============================================================
+// FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
   try {
     const auth = new GoogleAuth({
@@ -40,7 +38,7 @@ async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
           topic: "buyers",
           notification: {
             title: "🌾 Zao Jipya Limepatikana!",
-            body: `${zao} — ${idadi} magunia @ TZS ${bei}/gunia, ${mkoa}`,
+            body: `${capitalize(zao)} — ${idadi} magunia @ TZS ${bei}/gunia, ${mkoa}`,
           },
           data: {
             type: "new_crop",
@@ -59,7 +57,7 @@ async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
       }
     );
 
-    console.log("✅ FCM V1 Notification imetumwa kwa buyers:", response.data);
+    console.log("✅ FCM V1 Notification imetumwa moja kwa moja kwa buyers:", response.data);
   } catch (error) {
     console.error(
       "❌ Hitilafu wakati wa kutuma FCM notification:",
@@ -68,37 +66,6 @@ async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
   }
 }
 
-
-
-// Function ya kutuma notification kwa buyers
-async function tumaNotificationKwaWanunuzi(zao, idadi, bei, mkoa) {
-  try {
-    await admin.messaging().send({
-      topic: "buyers",
-      notification: {
-        title: "🌾 Zao Jipya Limepatikana!",
-        body: `${capitalize(zao)} — ${idadi} magunia @ TZS ${bei}/gunia, ${mkoa}`,
-      },
-      data: {
-        type: "new_crop",
-        zao: String(zao),
-        idadi: String(idadi),
-        bei: String(bei),
-        mkoa: String(mkoa),
-      },
-      android: {
-        priority: "high",
-        notification: {
-          channelId: "soko_notifications",
-        },
-      },
-    });
-
-    console.log(`🔔 Notification imetumwa kwa buyers: ${zao} - ${mkoa}`);
-  } catch (error) {
-    console.error("❌ Notification error:", error.message);
-  }
-}
 
 // ---- KAZI YA KUTUMA SMS (Africa's Talking) ----
 async function tumaSMS(simu, ujumbe) {

@@ -218,9 +218,9 @@ app.get("/admin", async (req, res) => {
       "SELECT * FROM matangazo ORDER BY tarehe DESC",
     );
     
-    // 1. VUTA DATA YA MAOMBI YA WANUNUZI (BUYER REQUESTS) KUTOKA DATABASE
+    // 1. VUTA DATA YA MAOMBI PAMOJA NA STATUS YAKE (PENDING, ACCEPTED, REJECTED)
     const maombiResult = await pool.query(
-      "SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 20",
+      "SELECT id, zao, idadi, mkoa, phone_number, COALESCE(status, 'pending') AS status, tarehe FROM buyer_requests ORDER BY tarehe DESC LIMIT 20",
     );
 
     const safeSiri = encodeURIComponent(req.query.siri);
@@ -249,24 +249,33 @@ app.get("/admin", async (req, res) => {
         <tr>
           <td>${m.phone_number}</td><td>${capitalize(m.zao)}</td><td>${m.idadi}</td><td>TZS ${m.bei}</td><td>${m.mkoa}</td>
           <td style="color: white; background-color: ${rangi}; font-weight: bold; text-align: center;">
-            ${m.status.toUpperCase()}
+            ${(m.status || "PENDING").toUpperCase()}
           </td>
         </tr>`;
       })
       .join("");
 
-    // 2. TENGENEZA SAFA (ROWS) ZA HTML KWA AJILI YA MAOMBI YA WANUNUZI
+    // 2. TENGENEZA SAFA ZA MAOMBI PAMOJA NA STATUS ZA KUKUBALI/KUKATAA PAMOJA NA RANGI
     const maombiRows = maombiResult.rows
-      .map(
-        (m) => `
+      .map((m) => {
+        let statusRangi = "#f59e0b"; // Njano kwa pending
+        const statusLower = (m.status || "pending").toLowerCase();
+        
+        if (statusLower === "accepted") statusRangi = "#10b981"; // Kijani
+        if (statusLower === "rejected") statusRangi = "#ef4444"; // Nyekundu
+
+        return `
         <tr>
           <td>${m.phone_number}</td>
           <td>${capitalize(m.zao)}</td>
           <td>${m.idadi}</td>
           <td>${m.mkoa}</td>
           <td>${new Date(m.tarehe).toLocaleDateString("sw-TZ")}</td>
-        </tr>`,
-      )
+          <td style="color: white; background-color: ${statusRangi}; font-weight: bold; text-align: center;">
+            ${statusLower.toUpperCase()}
+          </td>
+        </tr>`;
+      })
       .join("");
 
     res.send(`
@@ -307,8 +316,9 @@ app.get("/admin", async (req, res) => {
               <th>Idadi (Magunia)</th>
               <th>Mkoa Husika</th>
               <th>Tarehe ya Ombi</th>
+              <th>Hali (Status)</th>
             </tr>
-            ${maombiRows ? maombiRows : '<tr><td colspan="5" style="text-align:center; color:#6b7280;">Hakuna maombi ya jumla kutoka kwa wanunuzi kwa sasa.</td></tr>'}
+            ${maombiRows ? maombiRows : '<tr><td colspan="6" style="text-align:center; color:#6b7280;">Hakuna maombi ya jumla kutoka kwa wanunuzi kwa sasa.</td></tr>'}
           </table>
 
           <h3>3. Hali ya Matangazo ya Wakulima (Orodha ya USSD)</h3>
@@ -323,24 +333,6 @@ app.get("/admin", async (req, res) => {
   } catch (err) {
     res.status(500).send("Tatizo: " + err.message);
   }
-});
-
-app.post("/admin/ongeza", async (req, res) => {
-  if (req.query.siri !== process.env.ADMIN_SECRET)
-    return res.status(403).send("Hairuhusiwi.");
-  const { zao, mkoa, bei } = req.body;
-  await pool.query(
-    "INSERT INTO bei_mazao (zao, mkoa, bei) VALUES ($1, $2, $3)",
-    [zao.toLowerCase().trim(), mkoa.trim(), bei],
-  );
-  res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
-});
-
-app.post("/admin/futa", async (req, res) => {
-  if (req.query.siri !== process.env.ADMIN_SECRET)
-    return res.status(403).send("Hairuhusiwi.");
-  await pool.query("DELETE FROM bei_mazao WHERE id = $1", [req.body.id]);
-  res.redirect("/admin?siri=" + encodeURIComponent(req.query.siri));
 });
 
 const PORT = process.env.PORT || 3000;
