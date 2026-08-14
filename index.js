@@ -12,7 +12,6 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 
-const { GoogleAuth } = require("google-auth-library");
 const axios = require("axios");
 
 // ONGOZA APPS / CODE ZAKO ZINGINE HAPA (Express setup, DB connection, n.k.)
