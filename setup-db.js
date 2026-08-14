@@ -1,62 +1,67 @@
 // setup-db.js
-// Faili hii inatengeneza majedwali (tables) kwenye database yako
+// Faili hii inatengeneza/kurekebisha majedwali kwenye database yako
 // Endesha mara MOJA tu: node setup-db.js
-require('dotenv').config();
+
+require("dotenv").config();
 const { Pool } = require("pg");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // Render inahitaji hii
+  ssl: { rejectUnauthorized: false },
 });
 
-async function setup() {
+async function runStartupMigration() {
   try {
-    console.log("Inatengeneza jedwali la bei_mazao...");
+    console.log("🔄 Inakagua database schema...");
+
+    // MKULIMA VERIFICATION
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS bei_mazao (
-        id SERIAL PRIMARY KEY,
-        zao VARCHAR(50) NOT NULL,
-        mkoa VARCHAR(50) NOT NULL,
-        bei INTEGER NOT NULL,
-        tarehe TIMESTAMP DEFAULT NOW()
-      );
+      ALTER TABLE IF EXISTS wakulima
+      ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
     `);
 
-    console.log("Inafuta na kutengeneza upya jedwali la matangazo...");
-    // Tunafuta la zamani ili muundo mpya uchukue nafasi
-    await pool.query("DROP TABLE IF EXISTS matangazo;"); 
+    // BUYER REQUEST STATUS
     await pool.query(`
-      CREATE TABLE matangazo (
-        id SERIAL PRIMARY KEY,
-        zao VARCHAR(100) NOT NULL,
-        idadi VARCHAR(50) NOT NULL,
-        bei INTEGER NOT NULL,               -- Column ya bei sasa ipo rasmi!
-        phone_number VARCHAR(20) NOT NULL,
-        active BOOLEAN DEFAULT TRUE,        -- Inahitajika kwenye USSD (Tazama Matangazo)
-        expires_at TIMESTAMP DEFAULT (NOW() + INTERVAL '30 days'), -- Tangazo lile dumu siku 30
-        tarehe TIMESTAMP DEFAULT NOW()
-      );
+      ALTER TABLE IF EXISTS buyer_requests
+      ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'pending';
     `);
 
-    console.log("Inaweka bei za mfano (seed data)...");
-    await pool.query("DELETE FROM bei_mazao");
+    // Hakikisha records za zamani hazibaki NULL
     await pool.query(`
-      INSERT INTO bei_mazao (zao, mkoa, bei) VALUES
-      ('mahindi', 'Dodoma', 800),
-      ('mahindi', 'Mbeya', 750),
-      ('mahindi', 'Morogoro', 820),
-      ('mpunga', 'Mbeya', 1200),
-      ('mpunga', 'Morogoro', 1300),
-      ('mpunga', 'Shinyanga', 1100),
-      ('maharage', 'Dodoma', 1800),
-      ('maharage', 'Songwe', 1700);
+      UPDATE wakulima
+      SET verified = FALSE
+      WHERE verified IS NULL;
     `);
 
-    console.log("✅ Database imetengenezwa kikamilifu na muundo mpya!");
-    process.exit(0);
-  } catch (err) {
-    console.error("❌ Kuna tatizo:", err.message);
-    process.exit(1);
+    await pool.query(`
+      UPDATE buyer_requests
+      SET status = 'pending'
+      WHERE status IS NULL;
+    `);
+
+    // MATANGAZO
+    await pool.query(`
+      ALTER TABLE IF EXISTS matangazo
+      ADD COLUMN IF NOT EXISTS bei INTEGER;
+    `);
+
+    await pool.query(`
+      ALTER TABLE IF EXISTS matangazo
+      ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE;
+    `);
+
+    await pool.query(`
+      ALTER TABLE IF EXISTS matangazo
+      ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP
+      DEFAULT (NOW() + INTERVAL '90 days');
+    `);
+
+    console.log("✅ Database schema iko sawa.");
+
+  } catch (error) {
+    console.error("❌ Startup migration error:", error.message);
+    // Hatumalizi server hapa; itaendelea ku-run
+    // lakini error itaonekana kwenye Render logs.
   }
 }
 
