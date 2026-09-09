@@ -11,8 +11,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 
-const { GoogleAuth } = require('google-auth-library');
-const axios = require('axios');
+
+
 
 // Function ya kutuma FCM Notification kwa wanunuzi
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
