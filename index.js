@@ -11,6 +11,52 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 
+const { GoogleAuth } = require('google-auth-library');
+const axios = require('axios');
+
+// Function ya kutuma FCM Notification kwa wanunuzi
+async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
+  try {
+    const auth = new GoogleAuth({
+      scopes: 'https://www.googleapis.com/auth/firebase.messaging'
+    });
+    const client = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    const accessToken = tokenResponse.token;
+
+    const projectId = "soko-la-mkulima";
+
+    const response = await axios.post(
+      `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+      {
+        message: {
+          topic: "buyers",
+          notification: {
+            title: "🌾 Zao Jipya Limepatikana!",
+            body: `${zao} — ${idadi} magunia @ TZS ${bei}/gunia, ${mkoa}`
+          },
+          data: {
+            zao: String(zao),
+            idadi: String(idadi),
+            bei: String(bei),
+            mkoa: String(mkoa)
+          }
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log("✅ Notification imetumwa kikamilifu:", response.data);
+  } catch (error) {
+    console.error("❌ Firebase notification error:", error.response ? error.response.data : error.message);
+  }
+}
+
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
   try {
@@ -46,18 +92,20 @@ async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-      }
+      },
     );
 
-    console.log("✅ FCM V1 Notification imetumwa moja kwa moja kwa buyers:", response.data);
+    console.log(
+      "✅ FCM V1 Notification imetumwa moja kwa moja kwa buyers:",
+      response.data,
+    );
   } catch (error) {
     console.error(
       "❌ Hitilafu wakati wa kutuma FCM notification:",
-      error.response ? error.response.data : error.message
+      error.response ? error.response.data : error.message,
     );
   }
 }
-
 
 // ---- KAZI YA KUTUMA SMS (Africa's Talking) ----
 async function tumaSMS(simu, ujumbe) {
@@ -345,17 +393,21 @@ app.post("/ussd", async (req, res) => {
       }
     } else if (majibu[0] === "5") {
       // --- OPTION 5: MAOMBI YA UNUNUZI (Chuja maombi ya PENDING pekee) ---
-      const mkulimaResult = await pool.query("SELECT mkoa FROM wakulima WHERE phone_number = $1", [phoneNumber]);
+      const mkulimaResult = await pool.query(
+        "SELECT mkoa FROM wakulima WHERE phone_number = $1",
+        [phoneNumber],
+      );
 
       if (mkulimaResult.rows.length === 0) {
-        response = "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
+        response =
+          "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
       } else {
         const mkoaWaMkulima = mkulimaResult.rows[0].mkoa;
-        
+
         // 1. CHUJA: Chukua maombi YALIYO PENDING PEKEE ili yaliyokubaliwa/kukatwa yaondoke kwenye list
         const maombiResult = await pool.query(
           "SELECT * FROM buyer_requests WHERE mkoa ILIKE $1 AND COALESCE(status, 'pending') = 'pending' ORDER BY id DESC LIMIT 5",
-          [`%${mkoaWaMkulima}%`]
+          [`%${mkoaWaMkulima}%`],
         );
 
         if (majibu.length === 1) {
@@ -363,7 +415,10 @@ app.post("/ussd", async (req, res) => {
             response = `END Hakuna maombi mapya ya ununuzi kwa mkoa wa ${mkoaWaMkulima} kwa sasa.`;
           } else {
             const orodha = maombiResult.rows
-              .map((m, i) => `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`)
+              .map(
+                (m, i) =>
+                  `${i + 1}. ${capitalize(m.zao)} - magunia ${m.idadi || "?"}`,
+              )
               .join("\n");
             response = `CON Maombi Mkoa wa ${mkoaWaMkulima}:\n${orodha}\nChagua namba:`;
           }
@@ -384,31 +439,40 @@ app.post("/ussd", async (req, res) => {
             response = "END Ombi hili halipatikani au limeshajibiwa.";
           } else if (majibu[2] === "1") {
             // UPDATE status kwenye database kwa kutumia ID halisi ya ombi
+            // Mkulima akikubali (Option 1)
             await pool.query(
               "UPDATE buyer_requests SET status = 'accepted' WHERE id = $1",
-              [ombiTeule.id]
+              [ombiTeule.id],
+            );
+
+            // Mkulima akikataa (Option 2)
+            await pool.query(
+              "UPDATE buyer_requests SET status = 'rejected' WHERE id = $1",
+              [ombiTeule.id],
             );
 
             // Tuma SMS kwa Mnunuzi
             await tumaSMS(
               ombiTeule.phone_number,
-              `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)}.\nMpigie sasa: ${phoneNumber}`
+              `Mkulima amekubali ombi lako la ${capitalize(ombiTeule.zao)}.\nMpigie sasa: ${phoneNumber}`,
             );
 
-            response = "END Hongera! Umekubali dili hili. Ombi limeondolewa kwenye orodha na Mnunuzi amejulishwa.";
+            response =
+              "END Hongera! Umekubali dili hili. Ombi limeondolewa kwenye orodha na Mnunuzi amejulishwa.";
           } else if (majibu[2] === "2") {
             // UPDATE status kuwa rejected
             await pool.query(
               "UPDATE buyer_requests SET status = 'rejected' WHERE id = $1",
-              [ombiTeule.id]
+              [ombiTeule.id],
             );
 
             await tumaSMS(
               ombiTeule.phone_number,
-              `Samahani, mkulima amekataa ombi lako la ${capitalize(ombiTeule.zao)}.`
+              `Samahani, mkulima amekataa ombi lako la ${capitalize(ombiTeule.zao)}.`,
             );
 
-            response = "END Umekataa ombi hili. Limeondolewa kwenye orodha yako.";
+            response =
+              "END Umekataa ombi hili. Limeondolewa kwenye orodha yako.";
           } else {
             response = "END Chaguo si sahihi. Jaribu tena.";
           }
@@ -1623,12 +1687,13 @@ app.get("/admin", async (req, res) => {
   ORDER BY tarehe DESC
   LIMIT 50
 `);
+    // 1. Ongeza 'status' kwenye SQL Query (na tumia COALESCE kama status ipo null)
     const buyerRequestsResult = await pool.query(`
-  SELECT id, zao, idadi, mkoa, phone_number as buyer_phone, tarehe
-  FROM buyer_requests
-  ORDER BY tarehe DESC
-  LIMIT 50
-`);
+    SELECT id, zao, idadi, mkoa, phone_number as buyer_phone, COALESCE(status, 'pending') as status, tarehe
+    FROM buyer_requests
+    ORDER BY tarehe DESC
+    LIMIT 50
+  `);
 
     const wanunuziResult = await pool.query("SELECT COUNT(*) FROM wanunuzi");
     const mahitajiResult = await pool.query(`
@@ -1856,17 +1921,26 @@ app.get("/admin", async (req, res) => {
 
     const buyerRequestsRows = buyerRequestsResult.rows
       .slice(0, 8)
-      .map(
-        (b) => `
+      .map((b) => {
+        let statusBadge = `<span class='badge badge-pending'>⏳ Pending</span>`;
+        const st = (b.status || "pending").toLowerCase();
+
+        if (st === "accepted") {
+          statusBadge = `<span class='badge badge-accepted' style='background-color:#d1fae5; color:#059669; padding:4px 8px; border-radius:12px; font-weight:bold;'>✓ Accepted</span>`;
+        } else if (st === "rejected") {
+          statusBadge = `<span class='badge badge-rejected' style='background-color:#fee2e2; color:#dc2626; padding:4px 8px; border-radius:12px; font-weight:bold;'>✕ Rejected</span>`;
+        }
+
+        return `
       <tr>
         <td>${capitalize(b.zao || "-")}</td>
         <td>${b.idadi || "-"}</td>
         <td>${b.mkoa || "-"}</td>
         <td>${b.buyer_phone || "-"}</td>
         <td>${new Date(b.tarehe).toLocaleDateString("sw-TZ")}</td>
-        <td><span class='badge badge-pending'>⏳ Pending</span></td>
-      </tr>`,
-      )
+        <td>${statusBadge}</td>
+      </tr>`;
+      })
       .join("");
 
     res.send(`
