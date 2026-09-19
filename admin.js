@@ -1,6 +1,6 @@
 // ============================================================
 // admin.js — Routes zote za Admin Dashboard
-// Zinaitwa kutoka index.js: app.use(require('./admin')(pool))
+// Zinaitwa kutoka index.js: app.use('/admin', require('./admin')(pool))
 // ============================================================
 
 const express = require('express');
@@ -21,14 +21,21 @@ module.exports = function (pool) {
     next();
   }
 
+  // Helper function kuzuia query iliyokwama / yenye kosa isikwamishe Promise.all
+  const safeQuery = (sql, params = []) =>
+    pool.query(sql, params).catch((err) => {
+      console.error('Error executing query:', err.message);
+      return { rows: [{ count: 0 }] };
+    });
+
   // ============================================================
-  // GET /admin — Dashboard kuu
+  // GET / — Dashboard kuu (Inafikiwa kwa /admin?siri=...)
   // ============================================================
-  router.get('/admin', adminAuth, async (req, res) => {
+  router.get('/', adminAuth, async (req, res) => {
     try {
       const safeSiri = encodeURIComponent(req.query.siri);
 
-      // ── Queries zote kwa wakati mmoja (parallel = haraka) ──────────────────
+      // ── Queries zote kwa wakati mmoja (parallel + safe wrapper) ──────────────────
       const [
         beiResult, wakulimaResult, matangazoResult,
         requestsResult, buyerRequestsResult, wanunuziResult,
@@ -37,29 +44,29 @@ module.exports = function (pool) {
         keshoResult, hawajaThitibishwaResult, maombiMapyaResult,
         wakulimaMpyaResult, transactionsResult,
       ] = await Promise.all([
-        pool.query('SELECT * FROM bei_mazao ORDER BY zao, mkoa'),
-        pool.query('SELECT * FROM wakulima ORDER BY tarehe DESC'),
-        pool.query('SELECT * FROM matangazo ORDER BY tarehe DESC'),
-        pool.query('SELECT id, zao, idadi, buyer_phone, farmer_phone, status, tarehe FROM purchase_requests ORDER BY tarehe DESC LIMIT 50'),
-        pool.query('SELECT id, zao, idadi, mkoa, phone_number as buyer_phone, COALESCE(status,\'pending\') as status, tarehe FROM buyer_requests ORDER BY tarehe DESC LIMIT 50'),
-        pool.query('SELECT COUNT(*) FROM wanunuzi'),
-        pool.query('SELECT zao, COUNT(*) as idadi FROM buyer_requests GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
-        pool.query('SELECT zao, COUNT(*) as idadi FROM matangazo GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
-        pool.query(`SELECT TO_CHAR(d.siku,'DY') AS siku, COUNT(m.id) AS idadi
+        safeQuery('SELECT * FROM bei_mazao ORDER BY zao, mkoa'),
+        safeQuery('SELECT * FROM wakulima ORDER BY tarehe DESC'),
+        safeQuery('SELECT * FROM matangazo ORDER BY tarehe DESC'),
+        safeQuery("SELECT id, zao, idadi, buyer_phone, farmer_phone, status, tarehe FROM purchase_requests ORDER BY tarehe DESC LIMIT 50"),
+        safeQuery("SELECT id, zao, idadi, mkoa, phone_number as buyer_phone, COALESCE(status,'pending') as status, tarehe FROM buyer_requests ORDER BY tarehe DESC LIMIT 50"),
+        safeQuery('SELECT COUNT(*) FROM wanunuzi'),
+        safeQuery('SELECT zao, COUNT(*) as idadi FROM buyer_requests GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
+        safeQuery('SELECT zao, COUNT(*) as idadi FROM matangazo GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
+        safeQuery(`SELECT TO_CHAR(d.siku,'DY') AS siku, COUNT(m.id) AS idadi
           FROM generate_series(CURRENT_DATE-INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day') d(siku)
           LEFT JOIN matangazo m ON DATE(m.tarehe)=d.siku
           GROUP BY d.siku ORDER BY d.siku`),
-        pool.query('SELECT mkoa, COUNT(*) as idadi FROM wakulima GROUP BY mkoa ORDER BY idadi DESC LIMIT 8'),
-        pool.query(`SELECT COALESCE(s.zao,d.zao) AS zao, COALESCE(s.supply,0) AS supply, COALESCE(d.demand,0) AS demand
+        safeQuery('SELECT mkoa, COUNT(*) as idadi FROM wakulima GROUP BY mkoa ORDER BY idadi DESC LIMIT 8'),
+        safeQuery(`SELECT COALESCE(s.zao,d.zao) AS zao, COALESCE(s.supply,0) AS supply, COALESCE(d.demand,0) AS demand
           FROM (SELECT zao,SUM(CAST(REGEXP_REPLACE(idadi,'[^0-9]','','g') AS INTEGER)) AS supply FROM matangazo WHERE active=TRUE GROUP BY zao) s
           FULL OUTER JOIN (SELECT zao,SUM(CAST(REGEXP_REPLACE(idadi,'[^0-9]','','g') AS INTEGER)) AS demand FROM buyer_requests GROUP BY zao) d
           ON s.zao=d.zao ORDER BY supply DESC LIMIT 6`),
-        pool.query('SELECT farmer_phone, ROUND(AVG(nyota),1) as wastani, COUNT(*) as idadi FROM ratings GROUP BY farmer_phone ORDER BY wastani DESC LIMIT 5'),
-        pool.query(`SELECT COUNT(*) FROM matangazo WHERE expires_at BETWEEN NOW() AND NOW()+INTERVAL '1 day' AND active=TRUE`),
-        pool.query('SELECT COUNT(*) FROM wakulima WHERE verified=FALSE'),
-        pool.query("SELECT COUNT(*) FROM purchase_requests WHERE status='pending'"),
-        pool.query("SELECT COUNT(*) FROM wakulima WHERE tarehe > NOW()-INTERVAL '24 hours'"),
-        pool.query('SELECT * FROM transactions ORDER BY tarehe DESC LIMIT 20').catch(() => ({ rows: [] })),
+        safeQuery('SELECT farmer_phone, ROUND(AVG(nyota),1) as wastani, COUNT(*) as idadi FROM ratings GROUP BY farmer_phone ORDER BY wastani DESC LIMIT 5'),
+        safeQuery(`SELECT COUNT(*) FROM matangazo WHERE expires_at BETWEEN NOW() AND NOW()+INTERVAL '1 day' AND active=TRUE`),
+        safeQuery('SELECT COUNT(*) FROM wakulima WHERE verified=FALSE'),
+        safeQuery("SELECT COUNT(*) FROM purchase_requests WHERE status='pending'"),
+        safeQuery("SELECT COUNT(*) FROM wakulima WHERE tarehe > NOW()-INTERVAL '24 hours'"),
+        safeQuery('SELECT * FROM transactions ORDER BY tarehe DESC LIMIT 20'),
       ]);
 
       const jumlaMatangazo = matangazoResult.rows.length;
@@ -80,14 +87,14 @@ module.exports = function (pool) {
       ).join('') || "<div class='legend-item'>Hakuna data bado</div>";
 
       // ── Bar chart (mahitaji) ─────────────────────────────────────────────────
-      const mahitajiMax = Math.max(1, ...mahitajiResult.rows.map(r => parseInt(r.idadi)));
+      const mahitajiMax = Math.max(1, ...mahitajiResult.rows.map(r => parseInt(r.idadi || 0)));
       const mahitajiBars = mahitajiResult.rows.map((r, i) => {
-        const w = Math.round((r.idadi / mahitajiMax) * 100);
+        const w = Math.round((parseInt(r.idadi || 0) / mahitajiMax) * 100);
         return `<div class="bar-row"><span class="bar-label">${capitalize(r.zao)}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-value">${r.idadi}</span></div>`;
       }).join('') || "<p class='hakuna'>Hakuna maombi bado.</p>";
 
       // ── Line chart (wiki) ────────────────────────────────────────────────────
-      const wikiN = wikiResult.rows.map(r => parseInt(r.idadi));
+      const wikiN = wikiResult.rows.map(r => parseInt(r.idadi || 0));
       const wikiMax = Math.max(1, ...wikiN);
       const W = 520, H = 160, pad = 30;
       const stepX = (W - pad*2) / ((wikiN.length - 1) || 1);
@@ -101,7 +108,7 @@ module.exports = function (pool) {
         const y = H - pad - (v / wikiMax) * (H - pad*2);
         return `<circle cx="${x}" cy="${y}" r="4" fill="#2E8B57"/>`;
       }).join('');
-      const wikiLabels = wikiResult.rows.map(r => `<span>${r.siku.trim()}</span>`).join('');
+      const wikiLabels = wikiResult.rows.map(r => `<span>${(r.siku || '').trim()}</span>`).join('');
 
       // ── Majedwali ─────────────────────────────────────────────────────────────
       const beiRows = beiResult.rows.map(r => `
@@ -162,9 +169,9 @@ module.exports = function (pool) {
         </tr>`).join('') || "<tr><td colspan='8'>Hakuna muamala bado.</td></tr>";
 
       // ── Analytics: Wakulima kwa Mkoa ─────────────────────────────────────────
-      const mkMax = Math.max(1, ...wakulimaMkoaResult.rows.map(r => parseInt(r.idadi)));
+      const mkMax = Math.max(1, ...wakulimaMkoaResult.rows.map(r => parseInt(r.idadi || 0)));
       const mkoaBars = wakulimaMkoaResult.rows.map((r, i) => {
-        const w = Math.round((parseInt(r.idadi)/mkMax)*100);
+        const w = Math.round((parseInt(r.idadi || 0)/mkMax)*100);
         return `<div class="bar-row"><span class="bar-label" style="width:80px">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-value">${r.idadi}</span></div>`;
       }).join('') || "<p class='hakuna'>Hakuna data.</p>";
 
@@ -176,10 +183,11 @@ module.exports = function (pool) {
       }).join('') || "<tr><td colspan='4' style='padding:12px;color:#6B7670'>Hakuna data bado.</td></tr>";
 
       // ── Notifications ─────────────────────────────────────────────────────────
-      const mpyaCount = parseInt(wakulimaMpyaResult.rows[0].count);
-      const maombiCount = parseInt(maombiMapyaResult.rows[0].count);
-      const keshoCount = parseInt(keshoResult.rows[0].count);
-      const hawajaCount = parseInt(hawajaThitibishwaResult.rows[0].count);
+      const mpyaCount = parseInt(wakulimaMpyaResult.rows[0]?.count || 0);
+      const maombiCount = parseInt(maombiMapyaResult.rows[0]?.count || 0);
+      const keshoCount = parseInt(keshoResult.rows[0]?.count || 0);
+      const hawajaCount = parseInt(hawajaThitibishwaResult.rows[0]?.count || 0);
+      const wanunuziCount = wanunuziResult.rows[0]?.count || 0;
 
       res.send(`<!DOCTYPE html>
 <html lang="sw">
@@ -280,14 +288,14 @@ module.exports = function (pool) {
   </div>
   <div class="nav-item active">📊 Dashibodi</div>
   <div class="nav-item">👨‍🌾 Wakulima (${wakulimaResult.rows.length})</div>
-  <div class="nav-item">🛒 Wanunuzi (${wanunuziResult.rows[0].count})</div>
+  <div class="nav-item">🛒 Wanunuzi (${wanunuziCount})</div>
   <div class="nav-item">📢 Matangazo (${jumlaMatangazo})</div>
   <div class="nav-item">💬 Maombi (${requestsResult.rows.length})</div>
   <div class="nav-item">💰 Bei za Mazao (${beiResult.rows.length})</div>
   <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:16px 0;">
-  <a href="/ripoti/wakulima?siri=${safeSiri}" class="nav-item">📄 Ripoti: Wakulima</a>
-  <a href="/ripoti/matangazo?siri=${safeSiri}" class="nav-item">📄 Ripoti: Matangazo</a>
-  <a href="/ripoti/maombi?siri=${safeSiri}" class="nav-item">📄 Ripoti: Maombi</a>
+  <a href="/admin/ripoti/wakulima?siri=${safeSiri}" class="nav-item">📄 Ripoti: Wakulima</a>
+  <a href="/admin/ripoti/matangazo?siri=${safeSiri}" class="nav-item">📄 Ripoti: Matangazo</a>
+  <a href="/admin/ripoti/maombi?siri=${safeSiri}" class="nav-item">📄 Ripoti: Maombi</a>
   <div class="sidebar-note">Soko la Mkulima<br>Kuunganisha wakulima na wanunuzi kwa maendeleo ya kilimo Tanzania.</div>
 </aside>
 
@@ -314,7 +322,7 @@ module.exports = function (pool) {
     </div>
     <div class="stat-card">
       <div class="stat-icon" style="background:var(--chungwa)">🛒</div>
-      <div class="num">${wanunuziResult.rows[0].count}</div>
+      <div class="num">${wanunuziCount}</div>
       <div class="label">Wanunuzi</div>
     </div>
     <div class="stat-card">
@@ -447,11 +455,11 @@ module.exports = function (pool) {
   <!-- RIPOTI -->
   <h2 class="section-title">📥 Pakua Ripoti</h2>
   <div class="ripoti-btns">
-    <a href="/ripoti/wakulima?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Wakulima (PDF)</a>
-    <a href="/ripoti/matangazo?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Matangazo (PDF)</a>
-    <a href="/ripoti/maombi?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Maombi (PDF)</a>
-    <a href="/ripoti/wakulima-excel?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Wakulima (Excel/CSV)</a>
-    <a href="/ripoti/matangazo-excel?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Matangazo (Excel/CSV)</a>
+    <a href="/admin/ripoti/wakulima?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Wakulima (PDF)</a>
+    <a href="/admin/ripoti/matangazo?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Matangazo (PDF)</a>
+    <a href="/admin/ripoti/maombi?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Maombi (PDF)</a>
+    <a href="/admin/ripoti-excel/wakulima?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Wakulima (Excel/CSV)</a>
+    <a href="/admin/ripoti-excel/matangazo?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Matangazo (Excel/CSV)</a>
   </div>
 
 </main>
@@ -466,7 +474,7 @@ module.exports = function (pool) {
   // ============================================================
   // POST /admin/thibitisha — Thibitisha mkulima
   // ============================================================
-  router.post('/admin/thibitisha', adminAuth, async (req, res) => {
+  router.post('/thibitisha', adminAuth, async (req, res) => {
     await pool.query('UPDATE wakulima SET verified=TRUE WHERE id=$1', [req.body.id]);
     res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
   });
@@ -474,7 +482,7 @@ module.exports = function (pool) {
   // ============================================================
   // POST /admin/ongeza — Ongeza bei mpya
   // ============================================================
-  router.post('/admin/ongeza', adminAuth, async (req, res) => {
+  router.post('/ongeza', adminAuth, async (req, res) => {
     const { zao, mkoa, bei } = req.body;
     await pool.query(
       'INSERT INTO bei_mazao (zao, mkoa, bei) VALUES ($1, $2, $3)',
@@ -486,7 +494,7 @@ module.exports = function (pool) {
   // ============================================================
   // POST /admin/futa — Futa bei
   // ============================================================
-  router.post('/admin/futa', adminAuth, async (req, res) => {
+  router.post('/futa', adminAuth, async (req, res) => {
     await pool.query('DELETE FROM bei_mazao WHERE id=$1', [req.body.id]);
     res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
   });
@@ -494,7 +502,7 @@ module.exports = function (pool) {
   // ============================================================
   // POST /admin/transaction — Ongeza muamala
   // ============================================================
-  router.post('/admin/transaction', adminAuth, async (req, res) => {
+  router.post('/transaction', adminAuth, async (req, res) => {
     const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
     try {
       await pool.query(
@@ -509,9 +517,8 @@ module.exports = function (pool) {
 
   // ============================================================
   // GET /api/admin/buyers — Vuta maombi yote ya wanunuzi (JSON)
-  // (Ilikuwa ndani ya /ripoti route kwa bahati mbaya — sasa ipo sawa)
   // ============================================================
-  router.get('/api/admin/buyers', adminAuth, async (req, res) => {
+  router.get('/api/buyers', adminAuth, async (req, res) => {
     try {
       const result = await pool.query('SELECT * FROM buyer_requests ORDER BY id DESC');
       res.json(result.rows);
@@ -522,9 +529,8 @@ module.exports = function (pool) {
 
   // ============================================================
   // PUT /api/admin/verify-buyer/:id — Sasisha hali ya mnunuzi
-  // (Ilikuwa ndani ya /ripoti route kwa bahati mbaya — sasa ipo sawa)
   // ============================================================
-  router.put('/api/admin/verify-buyer/:id', adminAuth, async (req, res) => {
+  router.put('/api/verify-buyer/:id', adminAuth, async (req, res) => {
     const { id } = req.params;
     const { verified } = req.body;
     try {
@@ -540,9 +546,8 @@ module.exports = function (pool) {
   // ============================================================
   router.get('/ripoti/:aina', adminAuth, async (req, res) => {
     const aina = req.params.aina;
-    // Kama ni excel, redirect kwa handler sahihi
     if (aina.endsWith('-excel')) {
-      return res.redirect(`/ripoti-excel/${aina.replace('-excel','')}?siri=${req.query.siri}`);
+      return res.redirect(`/admin/ripoti-excel/${aina.replace('-excel','')}?siri=${req.query.siri}`);
     }
 
     let title = '', rows = [], headers = [];
@@ -610,11 +615,6 @@ module.exports = function (pool) {
     } catch (err) {
       res.status(500).send('Tatizo: ' + err.message);
     }
-  });
-
-  // Backward compatibility: /ripoti/:aina-excel inaendelea kufanya kazi
-  router.get('/ripoti/:aina-excel', adminAuth, async (req, res) => {
-    res.redirect(`/ripoti-excel/${req.params['aina-excel']}?siri=${req.query.siri}`);
   });
 
   return router;
