@@ -18,16 +18,26 @@ const adminRoutes = require("./admin");
 app.use("/admin", adminRoutes);
 
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
+// FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
   try {
+    let credentials;
+    
+    // 1. Jaribu kusoma credentials kutoka Render Environment Variable
+    if (process.env.FIREBASE_CREDENTIALS) {
+      credentials = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+    }
+
     const auth = new GoogleAuth({
+      credentials: credentials, // Inatumia file/object la credentials badala ya ku-guess
       scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
     });
+
     const client = await auth.getClient();
     const tokenResponse = await client.getAccessToken();
     const accessToken = tokenResponse.token;
 
-    const projectId = "soko-la-mkulima";
+    const projectId = "soko-la-mkulima"; // AU process.env.FIREBASE_PROJECT_ID
 
     const response = await axios.post(
       `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -52,17 +62,17 @@ async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
         },
-      },
+      }
     );
 
     console.log(
       "✅ FCM V1 Notification imetumwa moja kwa moja kwa buyers:",
-      response.data,
+      response.data
     );
   } catch (error) {
     console.error(
       "❌ Hitilafu wakati wa kutuma FCM notification:",
-      error.response ? error.response.data : error.message,
+      error.response ? error.response.data : error.message
     );
   }
 }
