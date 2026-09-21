@@ -1,620 +1,874 @@
 // ============================================================
-// admin.js — Routes zote za Admin Dashboard
-// Zinaitwa kutoka index.js: app.use('/admin', require('./admin')(pool))
+// admin.js — Admin Dashboard Kamili (Redesigned)
+// Itumie: app.use(require('./admin')(pool))
 // ============================================================
-
 const express = require('express');
 
-function capitalize(s) {
-  if (!s) return '';
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+const fmt = n => Number(n || 0).toLocaleString();
+const dateStr = d => d ? new Date(d).toLocaleDateString('sw-TZ') : '-';
 
 module.exports = function (pool) {
   const router = express.Router();
+  const q = (sql, p = []) => pool.query(sql, p).catch(e => { console.error(e.message); return { rows: [] }; });
 
-  // ── AUTH MIDDLEWARE (inakagua siri kwa kila /admin/* na /ripoti/*) ──────────
-  function adminAuth(req, res, next) {
-    if (req.query.siri !== process.env.ADMIN_SECRET) {
-      return res.status(403).send('Hairuhusiwi. Ongeza ?siri=SIRI_YAKO mwishoni mwa URL.');
-    }
+  function auth(req, res, next) {
+    if (req.query.siri !== process.env.ADMIN_SECRET)
+      return res.status(403).send('Hairuhusiwi.');
     next();
   }
 
-  // Helper function kuzuia query iliyokwama / yenye kosa isikwamishe Promise.all
-  const safeQuery = (sql, params = []) =>
-    pool.query(sql, params).catch((err) => {
-      console.error('Error executing query:', err.message);
-      return { rows: [{ count: 0 }] };
-    });
+  // ═══════════════════════════════════════════════════════════
+  // POST ROUTES (Actions)
+  // ═══════════════════════════════════════════════════════════
 
-  // ============================================================
-  // GET / — Dashboard kuu (Inafikiwa kwa /admin?siri=...)
-  // ============================================================
-  router.get('/', adminAuth, async (req, res) => {
-    try {
-      const safeSiri = encodeURIComponent(req.query.siri);
+  // Thibitisha mkulima
+  router.post('/admin/thibitisha', auth, async (req, res) => {
+    await q('UPDATE wakulima SET verified=TRUE WHERE id=$1', [req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=wakulima&ok=Mkulima+amethibitishwa`);
+  });
 
-      // ── Queries zote kwa wakati mmoja (parallel + safe wrapper) ──────────────────
-      const [
-        beiResult, wakulimaResult, matangazoResult,
-        requestsResult, buyerRequestsResult, wanunuziResult,
-        mahitajiResult, mazaoAsilimiaResult, wikiResult,
-        wakulimaMkoaResult, demandVsSupply, ratingsResult,
-        keshoResult, hawajaThitibishwaResult, maombiMapyaResult,
-        wakulimaMpyaResult, transactionsResult,
-      ] = await Promise.all([
-        safeQuery('SELECT * FROM bei_mazao ORDER BY zao, mkoa'),
-        safeQuery('SELECT * FROM wakulima ORDER BY tarehe DESC'),
-        safeQuery('SELECT * FROM matangazo ORDER BY tarehe DESC'),
-        safeQuery("SELECT id, zao, idadi, buyer_phone, farmer_phone, status, tarehe FROM purchase_requests ORDER BY tarehe DESC LIMIT 50"),
-        safeQuery("SELECT id, zao, idadi, mkoa, phone_number as buyer_phone, COALESCE(status,'pending') as status, tarehe FROM buyer_requests ORDER BY tarehe DESC LIMIT 50"),
-        safeQuery('SELECT COUNT(*) FROM wanunuzi'),
-        safeQuery('SELECT zao, COUNT(*) as idadi FROM buyer_requests GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
-        safeQuery('SELECT zao, COUNT(*) as idadi FROM matangazo GROUP BY zao ORDER BY idadi DESC LIMIT 6'),
-        safeQuery(`SELECT TO_CHAR(d.siku,'DY') AS siku, COUNT(m.id) AS idadi
-          FROM generate_series(CURRENT_DATE-INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day') d(siku)
-          LEFT JOIN matangazo m ON DATE(m.tarehe)=d.siku
-          GROUP BY d.siku ORDER BY d.siku`),
-        safeQuery('SELECT mkoa, COUNT(*) as idadi FROM wakulima GROUP BY mkoa ORDER BY idadi DESC LIMIT 8'),
-        safeQuery(`SELECT COALESCE(s.zao,d.zao) AS zao, COALESCE(s.supply,0) AS supply, COALESCE(d.demand,0) AS demand
-          FROM (SELECT zao,SUM(CAST(REGEXP_REPLACE(idadi,'[^0-9]','','g') AS INTEGER)) AS supply FROM matangazo WHERE active=TRUE GROUP BY zao) s
-          FULL OUTER JOIN (SELECT zao,SUM(CAST(REGEXP_REPLACE(idadi,'[^0-9]','','g') AS INTEGER)) AS demand FROM buyer_requests GROUP BY zao) d
-          ON s.zao=d.zao ORDER BY supply DESC LIMIT 6`),
-        safeQuery('SELECT farmer_phone, ROUND(AVG(nyota),1) as wastani, COUNT(*) as idadi FROM ratings GROUP BY farmer_phone ORDER BY wastani DESC LIMIT 5'),
-        safeQuery(`SELECT COUNT(*) FROM matangazo WHERE expires_at BETWEEN NOW() AND NOW()+INTERVAL '1 day' AND active=TRUE`),
-        safeQuery('SELECT COUNT(*) FROM wakulima WHERE verified=FALSE'),
-        safeQuery("SELECT COUNT(*) FROM purchase_requests WHERE status='pending'"),
-        safeQuery("SELECT COUNT(*) FROM wakulima WHERE tarehe > NOW()-INTERVAL '24 hours'"),
-        safeQuery('SELECT * FROM transactions ORDER BY tarehe DESC LIMIT 20'),
-      ]);
+  // Ghairi uthibitisho wa mkulima
+  router.post('/admin/ghairi-thibitisha', auth, async (req, res) => {
+    await q('UPDATE wakulima SET verified=FALSE WHERE id=$1', [req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=wakulima&ok=Uthibitisho+umeghairiwa`);
+  });
 
-      const jumlaMatangazo = matangazoResult.rows.length;
-      const rangi = ['#2E8B57','#E67E22','#3B82C4','#8B5FBF','#D7263D','#1B5E3F'];
+  // Thibitisha mnunuzi
+  router.post('/admin/thibitisha-mnunuzi', auth, async (req, res) => {
+    await q('UPDATE wanunuzi SET verified=TRUE WHERE id=$1', [req.body.id]).catch(() =>
+      q('ALTER TABLE wanunuzi ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE')
+        .then(() => q('UPDATE wanunuzi SET verified=TRUE WHERE id=$1', [req.body.id]))
+    );
+    res.redirect(`/admin?siri=${req.query.siri}&sec=wanunuzi&ok=Mnunuzi+amethibitishwa`);
+  });
 
-      // ── Donut chart ──────────────────────────────────────────────────────────
-      let kasoro = 0;
-      const donutSegs = mazaoAsilimiaResult.rows.map((r, i) => {
-        const pct = jumlaMatangazo ? (r.idadi / jumlaMatangazo) * 100 : 0;
-        const start = kasoro; kasoro += pct;
-        return { zao: r.zao, pct, start, end: kasoro, rangi: rangi[i % rangi.length] };
-      });
-      const donutGrad = donutSegs.length
-        ? donutSegs.map(s => `${s.rangi} ${s.start}% ${s.end}%`).join(', ')
-        : '#e5e7eb 0% 100%';
-      const donutLegend = donutSegs.map(s =>
-        `<div class="legend-item"><span class="dot" style="background:${s.rangi}"></span>${capitalize(s.zao)} <b>${Math.round(s.pct)}%</b></div>`
-      ).join('') || "<div class='legend-item'>Hakuna data bado</div>";
+  // Sasisha hali ya matangazo (accept / reject)
+  router.post('/admin/sasisha-tangazo', auth, async (req, res) => {
+    const { id, hali } = req.body;
+    const active = hali === 'accepted';
+    await q('UPDATE matangazo SET status=$1, active=$2 WHERE id=$3', [hali, active, id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=matangazo&ok=Tangazo+limesasishwa`);
+  });
 
-      // ── Bar chart (mahitaji) ─────────────────────────────────────────────────
-      const mahitajiMax = Math.max(1, ...mahitajiResult.rows.map(r => parseInt(r.idadi || 0)));
-      const mahitajiBars = mahitajiResult.rows.map((r, i) => {
-        const w = Math.round((parseInt(r.idadi || 0) / mahitajiMax) * 100);
-        return `<div class="bar-row"><span class="bar-label">${capitalize(r.zao)}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-value">${r.idadi}</span></div>`;
-      }).join('') || "<p class='hakuna'>Hakuna maombi bado.</p>";
+  // Futa tangazo
+  router.post('/admin/futa-tangazo', auth, async (req, res) => {
+    await q('DELETE FROM matangazo WHERE id=$1', [req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=matangazo&ok=Tangazo+limefutwa`);
+  });
 
-      // ── Line chart (wiki) ────────────────────────────────────────────────────
-      const wikiN = wikiResult.rows.map(r => parseInt(r.idadi || 0));
-      const wikiMax = Math.max(1, ...wikiN);
-      const W = 520, H = 160, pad = 30;
-      const stepX = (W - pad*2) / ((wikiN.length - 1) || 1);
-      const points = wikiN.map((v, i) => {
-        const x = pad + i * stepX;
-        const y = H - pad - (v / wikiMax) * (H - pad*2);
-        return `${x},${y}`;
-      }).join(' ');
-      const dots = wikiN.map((v, i) => {
-        const x = pad + i * stepX;
-        const y = H - pad - (v / wikiMax) * (H - pad*2);
-        return `<circle cx="${x}" cy="${y}" r="4" fill="#2E8B57"/>`;
-      }).join('');
-      const wikiLabels = wikiResult.rows.map(r => `<span>${(r.siku || '').trim()}</span>`).join('');
+  // Sasisha hali ya purchase_request (accept/reject/pending)
+  router.post('/admin/sasisha-ombi', auth, async (req, res) => {
+    await q('UPDATE purchase_requests SET status=$1 WHERE id=$2', [req.body.hali, req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=maombi-ununuzi&ok=Ombi+limesasishwa`);
+  });
 
-      // ── Majedwali ─────────────────────────────────────────────────────────────
-      const beiRows = beiResult.rows.map(r => `
-        <tr>
-          <td>${capitalize(r.zao)}</td>
-          <td>${r.mkoa}</td>
-          <td>TZS ${Number(r.bei).toLocaleString()}</td>
-          <td>
-            <form method="POST" action="/admin/futa?siri=${safeSiri}" style="display:inline">
-              <input type="hidden" name="id" value="${r.id}">
-              <button class="btn-futa" type="submit">Futa</button>
-            </form>
-          </td>
-        </tr>`).join('') || "<tr><td colspan='4'>Hakuna bei bado.</td></tr>";
+  // Sasisha hali ya buyer_request
+  router.post('/admin/sasisha-buyer-ombi', auth, async (req, res) => {
+    await q('UPDATE buyer_requests SET status=$1 WHERE id=$2', [req.body.hali, req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=maombi-wanunuzi&ok=Ombi+limesasishwa`);
+  });
 
-      const wakulimaRows = wakulimaResult.rows.map(w => `
-        <tr>
-          <td>${w.jina}</td><td>${w.mkoa}</td><td>${w.wilaya}</td>
-          <td>${w.phone_number}</td>
-          <td>${w.verified ? "<span class='badge badge-ok'>✓ Verified</span>" : "<span class='badge badge-pending'>Hajathibitishwa</span>"}</td>
-          <td>${w.verified ? '' : `<form method="POST" action="/admin/thibitisha?siri=${safeSiri}" style="display:inline"><input type="hidden" name="id" value="${w.id}"><button class="btn-thibitisha" type="submit">Thibitisha</button></form>`}</td>
-        </tr>`).join('') || "<tr><td colspan='6'>Hakuna mkulima bado.</td></tr>";
+  // Ongeza bei
+  router.post('/admin/ongeza', auth, async (req, res) => {
+    const { zao, mkoa, bei } = req.body;
+    await q('INSERT INTO bei_mazao (zao,mkoa,bei) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+      [zao.toLowerCase().trim(), mkoa.trim(), bei]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=bei&ok=Bei+imeongezwa`);
+  });
 
-      const matangazoRows = matangazoResult.rows.slice(0, 10).map(m => `
-        <tr>
-          <td><span class="crop-dot"></span>${capitalize(m.zao)}</td>
-          <td>${m.idadi}</td>
-          <td>${m.bei ? 'TZS '+Number(m.bei).toLocaleString() : '-'}</td>
-          <td>${m.phone_number}</td>
-          <td><span class="badge ${m.status==='accepted'?'badge-ok':m.status==='rejected'?'badge-danger':'badge-pending'}">${m.status||'pending'}</span></td>
-          <td>${new Date(m.tarehe).toLocaleDateString('sw-TZ')}</td>
-        </tr>`).join('') || "<tr><td colspan='6'>Hakuna tangazo bado.</td></tr>";
+  // Futa bei
+  router.post('/admin/futa', auth, async (req, res) => {
+    await q('DELETE FROM bei_mazao WHERE id=$1', [req.body.id]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=bei&ok=Bei+imefutwa`);
+  });
 
-      const requestsRows = requestsResult.rows.slice(0, 10).map(b => `
-        <tr>
-          <td>${capitalize(b.zao||'-')}</td><td>${b.idadi||'-'}</td>
-          <td>${b.buyer_phone||'-'}</td><td>${b.farmer_phone||'-'}</td>
-          <td>${new Date(b.tarehe).toLocaleDateString('sw-TZ')}</td>
-          <td><span class="badge ${b.status==='accepted'?'badge-ok':b.status==='rejected'?'badge-danger':'badge-pending'}">${b.status||'pending'}</span></td>
-        </tr>`).join('') || "<tr><td colspan='6'>Hakuna ombi bado.</td></tr>";
+  // Ongeza muamala
+  router.post('/admin/transaction', auth, async (req, res) => {
+    const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
+    await q('INSERT INTO transactions (reference,buyer_phone,farmer_phone,zao,amount,method) VALUES ($1,$2,$3,$4,$5,$6)',
+      [reference, buyer_phone || null, farmer_phone || null, zao || null, amount, method]);
+    res.redirect(`/admin?siri=${req.query.siri}&sec=miamala&ok=Muamala+umerekodiwa`);
+  });
 
-      const buyerReqRows = buyerRequestsResult.rows.slice(0, 10).map(b => `
-        <tr>
-          <td>${capitalize(b.zao||'-')}</td><td>${b.idadi||'-'}</td>
-          <td>${b.mkoa||'-'}</td><td>${b.buyer_phone||'-'}</td>
-          <td>${new Date(b.tarehe).toLocaleDateString('sw-TZ')}</td>
-          <td><span class="badge ${b.status==='accepted'?'badge-ok':b.status==='rejected'?'badge-danger':'badge-pending'}">${b.status||'pending'}</span></td>
-        </tr>`).join('') || "<tr><td colspan='6'>Hakuna maombi bado.</td></tr>";
+  // API: buyers JSON
+  router.get('/api/admin/buyers', auth, async (req, res) => {
+    const r = await q('SELECT * FROM buyer_requests ORDER BY id DESC');
+    res.json(r.rows);
+  });
 
-      const txRows = transactionsResult.rows.map(t => `
-        <tr>
-          <td>${t.reference||'-'}</td><td>${t.buyer_phone||'-'}</td>
-          <td>${t.farmer_phone||'-'}</td><td>${t.zao||'-'}</td>
-          <td>TZS ${Number(t.amount).toLocaleString()}</td>
-          <td>${t.method||'-'}</td>
-          <td><span class="badge ${t.status==='completed'?'badge-ok':t.status==='failed'?'badge-danger':'badge-pending'}">${t.status||'pending'}</span></td>
-          <td>${new Date(t.tarehe).toLocaleDateString('sw-TZ')}</td>
-        </tr>`).join('') || "<tr><td colspan='8'>Hakuna muamala bado.</td></tr>";
+  // ═══════════════════════════════════════════════════════════
+  // GET /admin — Dashboard kuu
+  // ═══════════════════════════════════════════════════════════
+  router.get('/admin', auth, async (req, res) => {
+    const S = encodeURIComponent(req.query.siri);
+    const okMsg = req.query.ok ? decodeURIComponent(req.query.ok) : '';
+    const activeSec = req.query.sec || 'dashibodi';
 
-      // ── Analytics: Wakulima kwa Mkoa ─────────────────────────────────────────
-      const mkMax = Math.max(1, ...wakulimaMkoaResult.rows.map(r => parseInt(r.idadi || 0)));
-      const mkoaBars = wakulimaMkoaResult.rows.map((r, i) => {
-        const w = Math.round((parseInt(r.idadi || 0)/mkMax)*100);
-        return `<div class="bar-row"><span class="bar-label" style="width:80px">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-value">${r.idadi}</span></div>`;
-      }).join('') || "<p class='hakuna'>Hakuna data.</p>";
+    const [
+      beiR, wakulimaR, matangazoR, purchaseR, buyerReqR, wanunuziR,
+      mahitajiR, mazaoR, wikiR, mkoaR, ratingsR,
+      pendingPurchase, pendingBuyer, hawajaThibitiwa, wapyaWakulima, txR,
+    ] = await Promise.all([
+      q('SELECT * FROM bei_mazao ORDER BY zao,mkoa'),
+      q('SELECT * FROM wakulima ORDER BY tarehe DESC'),
+      q('SELECT * FROM matangazo ORDER BY tarehe DESC LIMIT 100'),
+      q("SELECT * FROM purchase_requests ORDER BY tarehe DESC LIMIT 100"),
+      q("SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 100"),
+      q('SELECT * FROM wanunuzi ORDER BY tarehe DESC LIMIT 100'),
+      q('SELECT zao,COUNT(*) as n FROM buyer_requests GROUP BY zao ORDER BY n DESC LIMIT 6'),
+      q('SELECT zao,COUNT(*) as n FROM matangazo GROUP BY zao ORDER BY n DESC LIMIT 6'),
+      q(`SELECT TO_CHAR(d.siku,'DD/MM') AS lbl, COUNT(m.id) AS n
+         FROM generate_series(CURRENT_DATE-6,CURRENT_DATE,INTERVAL '1 day') d(siku)
+         LEFT JOIN matangazo m ON DATE(m.tarehe)=d.siku GROUP BY d.siku,lbl ORDER BY d.siku`),
+      q('SELECT mkoa,COUNT(*) as n FROM wakulima GROUP BY mkoa ORDER BY n DESC LIMIT 8'),
+      q('SELECT farmer_phone,ROUND(AVG(nyota),1) w,COUNT(*) n FROM ratings GROUP BY farmer_phone ORDER BY w DESC LIMIT 5'),
+      q("SELECT COUNT(*) n FROM purchase_requests WHERE status='pending'"),
+      q("SELECT COUNT(*) n FROM buyer_requests WHERE status='pending'"),
+      q('SELECT COUNT(*) n FROM wakulima WHERE verified=FALSE'),
+      q("SELECT COUNT(*) n FROM wakulima WHERE tarehe>NOW()-INTERVAL '24 hours'"),
+      q('SELECT * FROM transactions ORDER BY tarehe DESC LIMIT 30'),
+    ]);
 
-      // ── Analytics: Demand vs Supply ───────────────────────────────────────────
-      const dvsTbl = demandVsSupply.rows.map(r => {
-        const s = parseInt(r.supply)||0, d = parseInt(r.demand)||0;
-        const hali = s>d ? `<span style="color:#2E8B57">Ziada</span>` : s<d ? `<span style="color:#D7263D">Upungufu</span>` : `<span style="color:#6B7670">Sawa</span>`;
-        return `<tr><td style="padding:8px;border-bottom:1px solid #E6EAE8">${capitalize(r.zao||'')}</td><td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right;color:#2E8B57">${s}</td><td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right;color:#E67E22">${d}</td><td style="padding:8px;border-bottom:1px solid #E6EAE8;text-align:right">${hali}</td></tr>`;
-      }).join('') || "<tr><td colspan='4' style='padding:12px;color:#6B7670'>Hakuna data bado.</td></tr>";
+    // ── Stats ─────────────────────────────────────────────────
+    const statWakulima  = wakulimaR.rows.length;
+    const statMatangazo = matangazoR.rows.length;
+    const statWanunuzi  = wanunuziR.rows.length;
+    const statBuyerReq  = buyerReqR.rows.length;
+    const pPurchase     = parseInt(pendingPurchase.rows[0]?.n || 0);
+    const pBuyer        = parseInt(pendingBuyer.rows[0]?.n || 0);
+    const pHawaja       = parseInt(hawajaThibitiwa.rows[0]?.n || 0);
+    const pWapya        = parseInt(wapyaWakulima.rows[0]?.n || 0);
 
-      // ── Notifications ─────────────────────────────────────────────────────────
-      const mpyaCount = parseInt(wakulimaMpyaResult.rows[0]?.count || 0);
-      const maombiCount = parseInt(maombiMapyaResult.rows[0]?.count || 0);
-      const keshoCount = parseInt(keshoResult.rows[0]?.count || 0);
-      const hawajaCount = parseInt(hawajaThitibishwaResult.rows[0]?.count || 0);
-      const wanunuziCount = wanunuziResult.rows[0]?.count || 0;
+    // ── Bar chart data ─────────────────────────────────────────
+    const rangi = ['#2E8B57','#E67E22','#3B82C4','#8B5FBF','#D7263D','#1B5E3F','#F59E0B','#06B6D4'];
+    const mkMax  = Math.max(1, ...mkoaR.rows.map(r=>parseInt(r.n)));
+    const mahMax = Math.max(1, ...mahitajiR.rows.map(r=>parseInt(r.n)));
 
-      res.send(`<!DOCTYPE html>
+    // ── HTML renderers ─────────────────────────────────────────
+    const badge = (s) => {
+      if (s==='accepted'||s==='active') return `<span class="badge b-ok">✓ ${cap(s)}</span>`;
+      if (s==='rejected') return `<span class="badge b-red">✗ ${cap(s)}</span>`;
+      return `<span class="badge b-warn">⏳ Pending</span>`;
+    };
+
+    const actionBtns = (id, hali, route) => `
+      <div class="action-row">
+        ${hali!=='accepted'?`<form method="POST" action="/${route}?siri=${S}"><input type="hidden" name="id" value="${id}"><input type="hidden" name="hali" value="accepted"><button class="btn-sm b-ok" type="submit">✓ Kubali</button></form>`:''}
+        ${hali!=='rejected'?`<form method="POST" action="/${route}?siri=${S}"><input type="hidden" name="id" value="${id}"><input type="hidden" name="hali" value="rejected"><button class="btn-sm b-red" type="submit">✗ Kataa</button></form>`:''}
+        ${hali!=='pending'?`<form method="POST" action="/${route}?siri=${S}"><input type="hidden" name="id" value="${id}"><input type="hidden" name="hali" value="pending"><button class="btn-sm b-warn" type="submit">⏳ Pending</button></form>`:''}
+      </div>`;
+
+    // ── Wakulima rows ──────────────────────────────────────────
+    const wakulimaRows = wakulimaR.rows.map(w => `
+      <tr>
+        <td><strong>${w.jina}</strong></td>
+        <td>${w.mkoa}</td><td>${w.wilaya||'-'}</td><td>${w.phone_number}</td>
+        <td>${badge(w.verified?'accepted':'pending')}</td>
+        <td>${dateStr(w.tarehe)}</td>
+        <td>
+          <div class="action-row">
+            ${!w.verified?`<form method="POST" action="/admin/thibitisha?siri=${S}"><input type="hidden" name="id" value="${w.id}"><button class="btn-sm b-ok" type="submit">✓ Thibitisha</button></form>`:''}
+            ${w.verified?`<form method="POST" action="/admin/ghairi-thibitisha?siri=${S}"><input type="hidden" name="id" value="${w.id}"><button class="btn-sm b-warn" type="submit">↩ Ghairi</button></form>`:''}
+          </div>
+        </td>
+      </tr>`).join('');
+
+    // ── Wanunuzi rows ──────────────────────────────────────────
+    const wanunuziRows = wanunuziR.rows.map(w => `
+      <tr>
+        <td><strong>${w.jina||'-'}</strong></td>
+        <td>${w.mkoa||'-'}</td><td>${w.phone_number||w.simu||'-'}</td>
+        <td>${badge(w.verified?'accepted':'pending')}</td>
+        <td>${dateStr(w.tarehe)}</td>
+        <td>
+          ${!w.verified?`<form method="POST" action="/admin/thibitisha-mnunuzi?siri=${S}"><input type="hidden" name="id" value="${w.id}"><button class="btn-sm b-ok" type="submit">✓ Thibitisha</button></form>`:'<span style="color:#2E8B57;font-size:12px">✓ Amethibitishwa</span>'}
+        </td>
+      </tr>`).join('') || '<tr><td colspan="6" class="empty-row">Hakuna wanunuzi bado.</td></tr>';
+
+    // ── Matangazo rows ─────────────────────────────────────────
+    const matangazoRows = matangazoR.rows.map(m => `
+      <tr>
+        <td><strong>${cap(m.zao)}</strong></td>
+        <td>${m.idadi}</td>
+        <td>${m.bei?'TZS '+fmt(m.bei):'-'}</td>
+        <td>${m.phone_number}</td>
+        <td>${m.mkoa||'-'}</td>
+        <td>${badge(m.status||'pending')}</td>
+        <td>${dateStr(m.tarehe)}</td>
+        <td>
+          <div class="action-row">
+            ${m.status!=='accepted'?`<form method="POST" action="/admin/sasisha-tangazo?siri=${S}"><input type="hidden" name="id" value="${m.id}"><input type="hidden" name="hali" value="accepted"><button class="btn-sm b-ok" type="submit">✓</button></form>`:''}
+            ${m.status!=='rejected'?`<form method="POST" action="/admin/sasisha-tangazo?siri=${S}"><input type="hidden" name="id" value="${m.id}"><input type="hidden" name="hali" value="rejected"><button class="btn-sm b-red" type="submit">✗</button></form>`:''}
+            <form method="POST" action="/admin/futa-tangazo?siri=${S}" onsubmit="return confirm('Futa?')"><input type="hidden" name="id" value="${m.id}"><button class="btn-sm b-gray" type="submit">🗑</button></form>
+          </div>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty-row">Hakuna matangazo bado.</td></tr>';
+
+    // ── Purchase requests rows ─────────────────────────────────
+    const purchaseRows = purchaseR.rows.map(b => `
+      <tr>
+        <td><strong>${cap(b.zao||'-')}</strong></td>
+        <td>${b.idadi||'-'}</td>
+        <td>${b.buyer_phone||'-'}</td>
+        <td>${b.farmer_phone||'-'}</td>
+        <td>${badge(b.status||'pending')}</td>
+        <td>${dateStr(b.tarehe)}</td>
+        <td>${actionBtns(b.id, b.status||'pending', 'admin/sasisha-ombi')}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
+
+    // ── Buyer requests rows ────────────────────────────────────
+    const buyerReqRows = buyerReqR.rows.map(b => `
+      <tr>
+        <td><strong>${cap(b.zao||'-')}</strong></td>
+        <td>${b.idadi||'-'}</td>
+        <td>${b.mkoa||'-'}</td>
+        <td>${b.phone_number||b.buyer_phone||'-'}</td>
+        <td>${badge(b.status||'pending')}</td>
+        <td>${dateStr(b.tarehe)}</td>
+        <td>${actionBtns(b.id, b.status||'pending', 'admin/sasisha-buyer-ombi')}</td>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
+
+    // ── Bei rows ───────────────────────────────────────────────
+    const beiRows = beiR.rows.map(r => `
+      <tr>
+        <td><strong>${cap(r.zao)}</strong></td>
+        <td>${r.mkoa}</td>
+        <td>TZS ${fmt(r.bei)}</td>
+        <td><form method="POST" action="/admin/futa?siri=${S}" onsubmit="return confirm('Futa?')"><input type="hidden" name="id" value="${r.id}"><button class="btn-sm b-red" type="submit">🗑 Futa</button></form></td>
+      </tr>`).join('') || '<tr><td colspan="4" class="empty-row">Hakuna bei bado.</td></tr>';
+
+    // ── Transactions rows ──────────────────────────────────────
+    const txRows = txR.rows.map(t => `
+      <tr>
+        <td><code>${t.reference||'-'}</code></td>
+        <td>${t.buyer_phone||'-'}</td>
+        <td>${t.farmer_phone||'-'}</td>
+        <td>${cap(t.zao||'-')}</td>
+        <td><strong>TZS ${fmt(t.amount)}</strong></td>
+        <td>${t.method||'-'}</td>
+        <td>${badge(t.status||'pending')}</td>
+        <td>${dateStr(t.tarehe)}</td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty-row">Hakuna miamala bado.</td></tr>';
+
+    // ── Mikoa bar ──────────────────────────────────────────────
+    const mkoaBars = mkoaR.rows.map((r,i) => {
+      const w = Math.round((parseInt(r.n)/mkMax)*100);
+      return `<div class="bar-row"><span class="bar-lbl">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
+    }).join('') || "<p class='muted'>Hakuna data.</p>";
+
+    const mahitajiBars = mahitajiR.rows.map((r,i) => {
+      const w = Math.round((parseInt(r.n)/mahMax)*100);
+      return `<div class="bar-row"><span class="bar-lbl">${cap(r.zao)}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
+    }).join('') || "<p class='muted'>Hakuna maombi.</p>";
+
+    // ── Wiki chart ─────────────────────────────────────────────
+    const wikiN = wikiR.rows.map(r => parseInt(r.n)||0);
+    const wikiMax = Math.max(1,...wikiN);
+    const W=480,H=140,pad=30,step=(W-pad*2)/((wikiN.length-1)||1);
+    const pts = wikiN.map((v,i)=>`${pad+i*step},${H-pad-(v/wikiMax)*(H-pad*2)}`).join(' ');
+    const dots = wikiN.map((v,i)=>`<circle cx="${pad+i*step}" cy="${H-pad-(v/wikiMax)*(H-pad*2)}" r="4" fill="#2E8B57" stroke="#fff" stroke-width="1.5"/>`).join('');
+    const wikiLbls = wikiR.rows.map(r=>`<span>${r.lbl}</span>`).join('');
+
+    res.send(`<!DOCTYPE html>
 <html lang="sw">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Soko la Mkulima — Dashibodi ya Admin</title>
+<title>Admin — Soko la Mkulima</title>
 <style>
-  :root{--kijani-giza:#14432F;--kijani:#2E8B57;--kijani-mwanga:#E8F5EE;--bg:#F2F5F4;--kadi:#fff;--maandishi:#1F2A24;--maandishi-pili:#6B7670;--mpaka:#E6EAE8;--bluu:#3B82C4;--chungwa:#E67E22;--zambarau:#8B5FBF;}
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--maandishi);display:flex;min-height:100vh;}
-  a{text-decoration:none;color:inherit;}
-  /* SIDEBAR */
-  .sidebar{width:240px;background:var(--kijani-giza);color:#fff;padding:24px 16px;flex-shrink:0;position:sticky;top:0;height:100vh;overflow-y:auto;}
-  .brand{display:flex;align-items:center;gap:10px;padding:0 8px 24px;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:20px;}
-  .brand h1{font-size:16px;line-height:1.2;}
-  .brand p{font-size:11px;color:#A9C9B8;}
-  .nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:#CFE3D8;font-size:14px;margin-bottom:4px;cursor:pointer;}
-  .nav-item.active,.nav-item:hover{background:var(--kijani);color:#fff;font-weight:600;}
-  .sidebar-note{margin-top:30px;background:rgba(255,255,255,.07);border-radius:10px;padding:16px;font-size:12px;line-height:1.5;color:#CFE3D8;}
-  /* MAIN */
-  .main{flex:1;padding:28px 32px;max-width:1300px;overflow-x:hidden;}
-  .topbar{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;}
-  .topbar h2{font-size:24px;}
-  .topbar p{margin-top:4px;color:var(--maandishi-pili);font-size:14px;}
-  /* STATS */
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:24px;}
-  .stat-card{background:var(--kadi);border-radius:14px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid var(--mpaka);}
-  .stat-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff;margin-bottom:10px;}
-  .stat-card .num{font-size:26px;font-weight:700;}
-  .stat-card .label{font-size:13px;color:var(--maandishi-pili);}
-  /* PANELS */
-  .panels{display:grid;grid-template-columns:1.1fr 1.1fr 1fr;gap:18px;margin-bottom:24px;}
-  .panel{background:var(--kadi);border-radius:14px;padding:20px;border:1px solid var(--mpaka);}
-  .panel h3{margin:0 0 14px;font-size:15px;}
-  /* DONUT */
-  .donut-wrap{display:flex;align-items:center;gap:18px;}
-  .donut{width:130px;height:130px;border-radius:50%;flex-shrink:0;position:relative;}
-  .donut::after{content:"";display:block;width:56px;height:56px;background:var(--kadi);border-radius:50%;position:absolute;top:37px;left:37px;}
-  .legend-item{font-size:13px;display:flex;align-items:center;gap:8px;margin-bottom:8px;color:var(--maandishi-pili);}
-  .legend-item b{color:var(--maandishi);margin-left:auto;}
-  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
-  /* LINE CHART */
-  .wiki-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--maandishi-pili);margin-top:4px;padding:0 28px;}
-  /* BAR CHART */
-  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
-  .bar-label{width:70px;font-size:13px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .bar-track{flex:1;background:var(--kijani-mwanga);border-radius:6px;height:10px;overflow:hidden;}
-  .bar-fill{height:100%;border-radius:6px;}
-  .bar-value{font-size:13px;color:var(--maandishi-pili);width:28px;text-align:right;}
-  .hakuna{color:var(--maandishi-pili);font-size:13px;}
-  /* TABLES */
-  .table-section{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px;}
-  table{width:100%;border-collapse:collapse;}
-  th{text-align:left;font-size:12px;color:var(--maandishi-pili);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--mpaka);}
-  td{padding:10px;font-size:13px;border-bottom:1px solid var(--mpaka);}
-  tr:hover td{background:#FAFCFB;}
-  .crop-dot{width:8px;height:8px;border-radius:50%;background:var(--kijani);display:inline-block;margin-right:8px;}
-  .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
-  .badge-ok{background:#E1F5EC;color:#1B5E3F;}
-  .badge-pending{background:#FDF2E1;color:#B5760C;}
-  .badge-danger{background:#FDEDEC;color:#C0392B;}
-  .btn-thibitisha{background:var(--kijani);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;}
-  .btn-futa{background:#FBE7E9;color:#C0392B;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;}
-  /* FORMS */
-  .form-panel{background:var(--kadi);border-radius:14px;padding:20px;border:1px solid var(--mpaka);margin-bottom:24px;}
-  .form-panel h3{margin:0 0 14px;font-size:15px;}
-  .form-panel form{display:flex;gap:10px;flex-wrap:wrap;}
-  .form-panel input,.form-panel select{padding:9px 12px;border:1px solid var(--mpaka);border-radius:8px;font-size:13px;flex:1;min-width:130px;}
-  .form-panel button{background:var(--kijani);color:#fff;border:none;padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;}
-  h2.section-title{font-size:18px;margin:30px 0 14px;}
-  /* NOTIFICATIONS */
-  .notif-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:24px;}
-  .notif{display:flex;align-items:flex-start;gap:14px;padding:14px 16px;border-radius:10px;border:1px solid;}
-  .notif-info{background:#EBF5FB;border-color:#AED6F1;}
-  .notif-warning{background:#FEF9E7;border-color:#F9E79F;}
-  .notif-danger{background:#FDEDEC;border-color:#F5B7B1;}
-  .notif-success{background:#E8F5E9;border-color:#A5D6A7;}
-  .notif-icon{font-size:22px;flex-shrink:0;}
-  .notif-title{font-weight:700;font-size:14px;margin-bottom:3px;}
-  .notif-msg{font-size:13px;color:#555;}
-  /* ANALYTICS */
-  .analytics-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:24px;}
-  /* RIPOTI BUTTONS */
-  .ripoti-btns{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;}
-  .btn-ripoti{display:inline-block;background:#14432F;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;}
-  .btn-excel{background:#217346;}
-  .btn-ripoti:hover{opacity:.9;}
-  @media(max-width:1000px){.stats{grid-template-columns:1fr 1fr;}.panels,.table-section,.analytics-grid{grid-template-columns:1fr;}.sidebar{display:none;}}
+:root{
+  --bg:#F0F4F2;--kadi:#fff;--kijani:#2E8B57;--kijani-giza:#0D2118;
+  --kijani-mwanga:#E8F5EE;--mpaka:#E2EAE5;--txt:#1A2620;--muted:#6B7670;
+  --red:#DC2626;--yellow:#D97706;--blue:#2563EB;
+  --sidebar:260px;--radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);display:flex;height:100vh;overflow:hidden;}
+a{text-decoration:none;color:inherit;}
+/* ── SIDEBAR ── */
+.sidebar{
+  width:var(--sidebar);background:var(--kijani-giza);color:#fff;
+  display:flex;flex-direction:column;height:100vh;overflow-y:auto;
+  transition:width .3s ease;flex-shrink:0;position:relative;z-index:10;
+}
+.sidebar::-webkit-scrollbar{width:4px;}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:2px;}
+.brand{padding:20px 18px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;}
+.brand-icon{font-size:28px;flex-shrink:0;}
+.brand-text h1{font-size:15px;font-weight:700;letter-spacing:.3px;}
+.brand-text p{font-size:11px;color:#7BBFA0;margin-top:2px;}
+.nav-group{padding:12px 10px 6px;font-size:10px;font-weight:700;color:#4A7A60;letter-spacing:1px;text-transform:uppercase;}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-radius:10px;margin:2px 8px;
+  cursor:pointer;color:#B0CFC0;font-size:13.5px;font-weight:500;
+  transition:all .2s ease;position:relative;
+}
+.nav-item:hover{background:rgba(255,255,255,.07);color:#fff;transform:translateX(3px);}
+.nav-item.active{background:var(--kijani);color:#fff;font-weight:700;box-shadow:0 4px 14px rgba(46,139,87,.4);}
+.nav-item.active::before{content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;background:#6FCFA0;border-radius:0 3px 3px 0;left:-8px;}
+.nav-icon{font-size:17px;width:22px;text-align:center;flex-shrink:0;}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;min-width:20px;text-align:center;}
+.nav-badge.warn{background:var(--yellow);}
+.sidebar-footer{margin-top:auto;padding:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#4A7A60;}
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.topbar{background:var(--kadi);border-bottom:1px solid var(--mpaka);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.topbar-left{display:flex;align-items:center;gap:12px;}
+.topbar-left h2{font-size:17px;font-weight:700;}
+.topbar-left p{font-size:12px;color:var(--muted);}
+.content{flex:1;overflow-y:auto;padding:24px 28px;}
+.content::-webkit-scrollbar{width:6px;}
+.content::-webkit-scrollbar-thumb{background:var(--mpaka);border-radius:3px;}
+/* ── TOAST ── */
+.toast{position:fixed;top:20px;right:20px;background:#2E8B57;color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transform:translateY(-10px);transition:all .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.15);}
+.toast.show{opacity:1;transform:translateY(0);}
+/* ── SECTIONS ── */
+.sehemu{display:none;animation:fadeUp .3s ease;}
+.sehemu.active{display:block;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+/* ── STATS ── */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
+.stat-card{background:var(--kadi);border-radius:var(--radius);padding:18px 20px;border:1px solid var(--mpaka);}
+.stat-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:10px;}
+.stat-num{font-size:28px;font-weight:800;line-height:1;}
+.stat-lbl{font-size:12px;color:var(--muted);margin-top:4px;}
+.stat-delta{font-size:11px;color:var(--kijani);margin-top:5px;font-weight:600;}
+/* ── CHARTS ── */
+.charts-row{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px;margin-bottom:22px;}
+.chart-card{background:var(--kadi);border-radius:var(--radius);padding:18px;border:1px solid var(--mpaka);}
+.chart-card h3{font-size:14px;font-weight:700;margin-bottom:14px;color:var(--txt);}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.bar-lbl{width:72px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;}
+.bar-track{flex:1;height:9px;background:var(--kijani-mwanga);border-radius:5px;overflow:hidden;}
+.bar-fill{height:100%;border-radius:5px;transition:width .6s ease;}
+.bar-val{font-size:12px;color:var(--muted);width:24px;text-align:right;}
+.wiki-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);padding:4px 28px 0;}
+.muted{font-size:13px;color:var(--muted);}
+/* ── ALERTS ── */
+.alerts-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:22px;}
+.alert-card{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:10px;border:1px solid;font-size:13px;}
+.alert-info{background:#EBF5FB;border-color:#AED6F1;}
+.alert-warn{background:#FEF9E7;border-color:#F9E79F;}
+.alert-red{background:#FDF2F2;border-color:#F5C6C6;}
+.alert-ok{background:#E8F5EE;border-color:#A5D6A7;}
+.alert-icon{font-size:22px;}
+.alert-title{font-weight:700;font-size:13px;}
+.alert-msg{font-size:12px;color:#555;margin-top:2px;}
+/* ── TABLES ── */
+.tbl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.tbl-header h3{font-size:15px;font-weight:700;}
+.panel{background:var(--kadi);border-radius:var(--radius);border:1px solid var(--mpaka);overflow:hidden;margin-bottom:20px;}
+.panel-hd{padding:16px 18px;border-bottom:1px solid var(--mpaka);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:space-between;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:600;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--mpaka);}
+td{padding:10px 14px;border-bottom:1px solid var(--mpaka);}
+tr:hover td{background:#FAFCFB;}
+tr:last-child td{border-bottom:none;}
+.empty-row{text-align:center;color:var(--muted);padding:28px!important;}
+code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
+/* ── BADGES ── */
+.badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.b-ok{background:#DCFCE7;color:#166534;}
+.b-red{background:#FEE2E2;color:#991B1B;}
+.b-warn{background:#FEF3C7;color:#92400E;}
+.b-gray{background:var(--bg);color:var(--muted);}
+/* ── BUTTONS ── */
+.btn-sm{border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11.5px;font-weight:700;transition:opacity .15s;}
+.btn-sm:hover{opacity:.82;}
+.btn-sm.b-ok{background:#DCFCE7;color:#166534;}
+.btn-sm.b-red{background:#FEE2E2;color:#991B1B;}
+.btn-sm.b-warn{background:#FEF3C7;color:#92400E;}
+.btn-sm.b-gray{background:var(--bg);color:var(--muted);border:1px solid var(--mpaka);}
+.action-row{display:flex;gap:6px;flex-wrap:wrap;}
+/* ── FORMS ── */
+.form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:16px 18px;}
+.form-grid input,.form-grid select{padding:9px 12px;border:1px solid var(--mpaka);border-radius:8px;font-size:13px;background:#fff;}
+.form-grid input:focus,.form-grid select:focus{outline:none;border-color:var(--kijani);}
+.btn-main{background:var(--kijani);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13.5px;font-weight:700;transition:all .2s;}
+.btn-main:hover{background:#256A43;}
+/* ── RIPOTI ── */
+.ripoti-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
+.ripoti-card{background:var(--kadi);border:1px solid var(--mpaka);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:10px;}
+.ripoti-card h4{font-size:14px;font-weight:700;}
+.ripoti-card p{font-size:12px;color:var(--muted);}
+.btn-ripoti{display:inline-block;padding:9px 16px;border-radius:8px;font-size:12.5px;font-weight:700;text-align:center;}
+.btn-pdf{background:var(--kijani-giza);color:#fff;}
+.btn-csv{background:#166534;color:#fff;}
+/* ── RESPONSIVE ── */
+@media(max-width:1100px){.stats-grid{grid-template-columns:1fr 1fr;}.charts-row{grid-template-columns:1fr;}}
+@media(max-width:700px){.sidebar{width:60px;}.brand-text,.nav-item span,.nav-badge{display:none;}.main{overflow:auto;}}
 </style>
 </head>
 <body>
 
+<!-- ═════ SIDEBAR ═════ -->
 <aside class="sidebar">
   <div class="brand">
-    <span style="font-size:26px">🌱</span>
-    <div><h1>SOKO LA MKULIMA</h1><p>Admin Dashboard</p></div>
+    <div class="brand-icon">🌱</div>
+    <div class="brand-text">
+      <h1>Soko la Mkulima</h1>
+      <p>Admin Dashboard</p>
+    </div>
   </div>
-  <div class="nav-item active">📊 Dashibodi</div>
-  <div class="nav-item">👨‍🌾 Wakulima (${wakulimaResult.rows.length})</div>
-  <div class="nav-item">🛒 Wanunuzi (${wanunuziCount})</div>
-  <div class="nav-item">📢 Matangazo (${jumlaMatangazo})</div>
-  <div class="nav-item">💬 Maombi (${requestsResult.rows.length})</div>
-  <div class="nav-item">💰 Bei za Mazao (${beiResult.rows.length})</div>
-  <hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:16px 0;">
-  <a href="/admin/ripoti/wakulima?siri=${safeSiri}" class="nav-item">📄 Ripoti: Wakulima</a>
-  <a href="/admin/ripoti/matangazo?siri=${safeSiri}" class="nav-item">📄 Ripoti: Matangazo</a>
-  <a href="/admin/ripoti/maombi?siri=${safeSiri}" class="nav-item">📄 Ripoti: Maombi</a>
-  <div class="sidebar-note">Soko la Mkulima<br>Kuunganisha wakulima na wanunuzi kwa maendeleo ya kilimo Tanzania.</div>
+
+  <div class="nav-group">Muhtasari</div>
+  <div class="nav-item ${activeSec==='dashibodi'?'active':''}" onclick="onyesha('dashibodi')">
+    <span class="nav-icon">📊</span> <span>Dashibodi</span>
+  </div>
+
+  <div class="nav-group">Watu</div>
+  <div class="nav-item ${activeSec==='wakulima'?'active':''}" onclick="onyesha('wakulima')">
+    <span class="nav-icon">👨‍🌾</span> <span>Wakulima</span>
+    ${pHawaja>0?`<span class="nav-badge warn">${pHawaja}</span>`:''}
+  </div>
+  <div class="nav-item ${activeSec==='wanunuzi'?'active':''}" onclick="onyesha('wanunuzi')">
+    <span class="nav-icon">🛒</span> <span>Wanunuzi</span>
+  </div>
+
+  <div class="nav-group">Soko</div>
+  <div class="nav-item ${activeSec==='matangazo'?'active':''}" onclick="onyesha('matangazo')">
+    <span class="nav-icon">📢</span> <span>Matangazo</span>
+  </div>
+  <div class="nav-item ${activeSec==='maombi-ununuzi'?'active':''}" onclick="onyesha('maombi-ununuzi')">
+    <span class="nav-icon">🤝</span> <span>Maombi (Ununuzi)</span>
+    ${pPurchase>0?`<span class="nav-badge">${pPurchase}</span>`:''}
+  </div>
+  <div class="nav-item ${activeSec==='maombi-wanunuzi'?'active':''}" onclick="onyesha('maombi-wanunuzi')">
+    <span class="nav-icon">💬</span> <span>Maombi (Wanunuzi)</span>
+    ${pBuyer>0?`<span class="nav-badge">${pBuyer}</span>`:''}
+  </div>
+
+  <div class="nav-group">Fedha & Bei</div>
+  <div class="nav-item ${activeSec==='bei'?'active':''}" onclick="onyesha('bei')">
+    <span class="nav-icon">💰</span> <span>Bei za Mazao</span>
+  </div>
+  <div class="nav-item ${activeSec==='miamala'?'active':''}" onclick="onyesha('miamala')">
+    <span class="nav-icon">💳</span> <span>Miamala</span>
+  </div>
+
+  <div class="nav-group">Takwimu</div>
+  <div class="nav-item ${activeSec==='analytics'?'active':''}" onclick="onyesha('analytics')">
+    <span class="nav-icon">📈</span> <span>Analytics</span>
+  </div>
+  <div class="nav-item ${activeSec==='ripoti'?'active':''}" onclick="onyesha('ripoti')">
+    <span class="nav-icon">📄</span> <span>Ripoti & Export</span>
+  </div>
+
+  <div class="sidebar-footer">
+    Soko la Mkulima © 2026<br>
+    <span style="color:#2E8B57">● Hai sasa hivi</span>
+  </div>
 </aside>
 
-<main class="main">
+<!-- ═════ MAIN ═════ -->
+<div class="main">
+  <!-- TOPBAR -->
   <div class="topbar">
-    <div>
-      <h2>📊 Dashibodi</h2>
-      <p>Karibu, Admin — Soko la Mkulima Tanzania</p>
-    </div>
-    <div style="font-size:13px;color:var(--maandishi-pili)">${new Date().toLocaleDateString('sw-TZ',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</div>
-  </div>
-
-  <!-- STAT CARDS -->
-  <div class="stats">
-    <div class="stat-card">
-      <div class="stat-icon" style="background:var(--kijani)">👨‍🌾</div>
-      <div class="num">${wakulimaResult.rows.length}</div>
-      <div class="label">Wakulima Wote</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon" style="background:var(--bluu)">📢</div>
-      <div class="num">${jumlaMatangazo}</div>
-      <div class="label">Matangazo</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon" style="background:var(--chungwa)">🛒</div>
-      <div class="num">${wanunuziCount}</div>
-      <div class="label">Wanunuzi</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon" style="background:var(--zambarau)">💬</div>
-      <div class="num">${requestsResult.rows.length}</div>
-      <div class="label">Maombi ya Ununuzi</div>
-    </div>
-  </div>
-
-  <!-- CHARTS -->
-  <div class="panels">
-    <div class="panel">
-      <h3>🌾 Mazao Yanayouzwa Zaidi</h3>
-      <div class="donut-wrap">
-        <div class="donut" style="background:conic-gradient(${donutGrad})"></div>
-        <div>${donutLegend}</div>
+    <div class="topbar-left">
+      <div>
+        <h2 id="topbar-title">📊 Dashibodi</h2>
+        <p>${new Date().toLocaleDateString('sw-TZ',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
       </div>
     </div>
-    <div class="panel">
-      <h3>📈 Matangazo — Siku 7 Zilizopita</h3>
-      <svg viewBox="0 0 ${W} ${H}" width="100%" height="140">
-        <polyline points="${points}" fill="none" stroke="#2E8B57" stroke-width="2.5"/>
-        ${dots}
-      </svg>
-      <div class="wiki-labels">${wikiLabels}</div>
-    </div>
-    <div class="panel">
-      <h3>🔥 Mahitaji Makubwa (Wanunuzi)</h3>
-      ${mahitajiBars}
+    <div style="display:flex;align-items:center;gap:12px;">
+      ${pWapya>0?`<span style="background:#DCFCE7;color:#166534;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">👨‍🌾 +${pWapya} wapya leo</span>`:''}
+      ${(pPurchase+pBuyer)>0?`<span style="background:#FEF3C7;color:#92400E;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">⏳ ${pPurchase+pBuyer} maombi yanayosubiri</span>`:''}
+      <span style="font-size:12px;color:var(--muted)">Admin</span>
     </div>
   </div>
 
-  <!-- ONGEZA BEI -->
-  <div class="form-panel">
-    <h3>➕ Ongeza Bei Mpya</h3>
-    <form method="POST" action="/admin/ongeza?siri=${safeSiri}">
-      <input name="zao" placeholder="Zao (mfano: mahindi)" required>
-      <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
-      <input name="bei" placeholder="Bei kwa kilo (TZS)" type="number" required>
-      <button type="submit">+ Ongeza Bei</button>
-    </form>
-  </div>
+  <!-- CONTENT -->
+  <div class="content">
 
-  <!-- NOTIFICATIONS -->
-  <h2 class="section-title">🔔 Kituo cha Taarifa</h2>
-  <div class="notif-grid">
-    ${mpyaCount > 0 ? `<div class="notif notif-info"><span class="notif-icon">👨‍🌾</span><div><div class="notif-title">Wakulima Wapya (Saa 24)</div><div class="notif-msg">${mpyaCount} wakulima wapya wamejisajili</div></div></div>` : ''}
-    ${maombiCount > 0 ? `<div class="notif notif-warning"><span class="notif-icon">💬</span><div><div class="notif-title">Maombi Yanayosubiri</div><div class="notif-msg">${maombiCount} maombi ya ununuzi bado hayajajibiwa</div></div></div>` : ''}
-    ${keshoCount > 0 ? `<div class="notif notif-danger"><span class="notif-icon">⏰</span><div><div class="notif-title">Matangazo Yanayokwisha</div><div class="notif-msg">${keshoCount} matangazo yataisha ndani ya saa 24</div></div></div>` : ''}
-    ${hawajaCount > 0 ? `<div class="notif notif-warning"><span class="notif-icon">✅</span><div><div class="notif-title">Uthibitisho Unahitajika</div><div class="notif-msg">${hawajaCount} wakulima hawajathibitishwa bado</div></div></div>` : ''}
-    ${mpyaCount===0 && maombiCount===0 && keshoCount===0 && hawajaCount===0 ? `<div class="notif notif-success"><span class="notif-icon">✅</span><div><div class="notif-title">Kila kitu kiko sawa!</div><div class="notif-msg">Hakuna taarifa zinazohitaji umakini kwa sasa.</div></div></div>` : ''}
-  </div>
+    <!-- ════ TOAST ════ -->
+    ${okMsg?`<div class="toast show" id="toast">✅ ${okMsg}</div>`:''}
 
-  <!-- ANALYTICS -->
-  <h2 class="section-title">📊 Uchambuzi wa Kina</h2>
-  <div class="analytics-grid">
-    <div class="panel">
-      <h3>Wakulima kwa Mkoa</h3>
-      ${mkoaBars}
+    <!-- ════ 1. DASHIBODI ════ -->
+    <div class="sehemu ${activeSec==='dashibodi'?'active':''}" id="sec-dashibodi">
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#DCFCE7">👨‍🌾</div>
+          <div class="stat-num">${statWakulima}</div>
+          <div class="stat-lbl">Wakulima Wote</div>
+          ${pWapya>0?`<div class="stat-delta">+${pWapya} leo</div>`:''}
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#DBEAFE">📢</div>
+          <div class="stat-num">${statMatangazo}</div>
+          <div class="stat-lbl">Matangazo</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#FEF3C7">🛒</div>
+          <div class="stat-num">${statWanunuzi}</div>
+          <div class="stat-lbl">Wanunuzi</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#F3E8FF">💬</div>
+          <div class="stat-num">${statBuyerReq}</div>
+          <div class="stat-lbl">Maombi ya Wanunuzi</div>
+        </div>
+      </div>
+
+      <!-- Alerts -->
+      <div class="alerts-row">
+        ${pHawaja>0?`<div class="alert-card alert-warn"><span class="alert-icon">👨‍🌾</span><div><div class="alert-title">Uthibitisho Unahitajika</div><div class="alert-msg">${pHawaja} wakulima hawajathibitishwa — <a href="#" onclick="onyesha('wakulima')" style="color:#92400E;font-weight:700">Angalia →</a></div></div></div>`:''}
+        ${pPurchase>0?`<div class="alert-card alert-info"><span class="alert-icon">🤝</span><div><div class="alert-title">Maombi Yanayosubiri</div><div class="alert-msg">${pPurchase} purchase requests — <a href="#" onclick="onyesha('maombi-ununuzi')" style="color:#1D4ED8;font-weight:700">Simamia →</a></div></div></div>`:''}
+        ${pBuyer>0?`<div class="alert-card alert-warn"><span class="alert-icon">💬</span><div><div class="alert-title">Maombi ya Wanunuzi</div><div class="alert-msg">${pBuyer} buyer requests — <a href="#" onclick="onyesha('maombi-wanunuzi')" style="color:#92400E;font-weight:700">Simamia →</a></div></div></div>`:''}
+        ${(pPurchase+pBuyer+pHawaja)===0?`<div class="alert-card alert-ok"><span class="alert-icon">✅</span><div><div class="alert-title">Kila kitu kiko sawa!</div><div class="alert-msg">Hakuna kazi zinazohitaji umakini sasa hivi.</div></div></div>`:''}
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <h3>📈 Matangazo — Wiki Iliyopita</h3>
+          <svg viewBox="0 0 ${W} ${H}" width="100%" height="130">
+            <defs><linearGradient id="gg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2E8B57" stop-opacity=".2"/><stop offset="100%" stop-color="#2E8B57" stop-opacity="0"/></linearGradient></defs>
+            <polyline points="${pts}" fill="none" stroke="#2E8B57" stroke-width="2.5" stroke-linejoin="round"/>
+            ${dots}
+          </svg>
+          <div class="wiki-lbl">${wikiLbls}</div>
+        </div>
+        <div class="chart-card">
+          <h3>🔥 Mahitaji Makubwa</h3>
+          ${mahitajiBars}
+        </div>
+        <div class="chart-card">
+          <h3>📍 Wakulima kwa Mkoa</h3>
+          ${mkoaBars}
+        </div>
+      </div>
+
+      <!-- Top ratings -->
+      <div class="panel">
+        <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
+        <table>
+          <tr><th>#</th><th>Simu</th><th>Ukadiriaji</th><th>Idadi</th></tr>
+          ${ratingsR.rows.map((r,i)=>`<tr><td>${['🥇','🥈','🥉','4️⃣','5️⃣'][i]}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n}</td></tr>`).join('')||'<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
+        </table>
+      </div>
     </div>
-    <div class="panel">
-      <h3>Demand vs Supply (Magunia)</h3>
-      <table>
-        <tr><th>Zao</th><th style="text-align:right;color:#2E8B57">Supply</th><th style="text-align:right;color:#E67E22">Demand</th><th style="text-align:right">Hali</th></tr>
-        ${dvsTbl}
-      </table>
+
+    <!-- ════ 2. WAKULIMA ════ -->
+    <div class="sehemu ${activeSec==='wakulima'?'active':''}" id="sec-wakulima">
+      <div class="tbl-header">
+        <div>
+          <h3>👨‍🌾 Wakulima Wote (${statWakulima})</h3>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px">${pHawaja} hawajathibitishwa • ${statWakulima-pHawaja} wamethibitishwa</p>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <span class="badge b-warn">${pHawaja} hawajathibitishwa</span>
+          <span class="badge b-ok">${statWakulima-pHawaja} wamethibitishwa</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Simu</th><th>Hali</th><th>Tarehe</th><th>Vitendo</th></tr>
+            ${wakulimaRows}
+          </table>
+        </div>
+      </div>
     </div>
-    <div class="panel">
-      <h3>Wakulima Waliokadiriwa Zaidi</h3>
-      ${ratingsResult.rows.length === 0 ? "<p class='hakuna'>Hakuna ukadiriaji bado.</p>" :
-        ratingsResult.rows.map((r, i) => `
-          <div class="bar-row" style="margin-bottom:14px">
-            <span style="font-size:18px;margin-right:8px">${['🥇','🥈','🥉','4️⃣','5️⃣'][i]||'•'}</span>
-            <div style="flex:1"><div style="font-size:13px;font-weight:600">${r.farmer_phone}</div><div style="font-size:12px;color:#6B7670">${r.idadi} ukadiriaji</div></div>
-            <span style="color:#F59E0B;font-weight:700">⭐ ${r.wastani}</span>
-          </div>`).join('')}
+
+    <!-- ════ 3. WANUNUZI ════ -->
+    <div class="sehemu ${activeSec==='wanunuzi'?'active':''}" id="sec-wanunuzi">
+      <div class="tbl-header">
+        <h3>🛒 Wanunuzi Wote (${statWanunuzi})</h3>
+      </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Jina</th><th>Mkoa</th><th>Simu</th><th>Hali</th><th>Tarehe</th><th>Vitendo</th></tr>
+            ${wanunuziRows}
+          </table>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- TABLES -->
-  <div class="table-section">
-    <div class="panel">
-      <h3>📢 Matangazo ya Hivi Karibuni</h3>
-      <table><tr><th>Zao</th><th>Magunia</th><th>Bei/Gunia</th><th>Simu</th><th>Hali</th><th>Tarehe</th></tr>${matangazoRows}</table>
+    <!-- ════ 4. MATANGAZO ════ -->
+    <div class="sehemu ${activeSec==='matangazo'?'active':''}" id="sec-matangazo">
+      <div class="tbl-header">
+        <h3>📢 Matangazo Yote (${statMatangazo})</h3>
+        <div style="display:flex;gap:8px">
+          <span class="badge b-ok">${matangazoR.rows.filter(m=>m.status==='accepted').length} Yamekubaliwa</span>
+          <span class="badge b-warn">${matangazoR.rows.filter(m=>!m.status||m.status==='pending').length} Yanayosubiri</span>
+          <span class="badge b-red">${matangazoR.rows.filter(m=>m.status==='rejected').length} Yamekataliwa</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Zao</th><th>Magunia</th><th>Bei/Gunia</th><th>Simu</th><th>Mkoa</th><th>Hali</th><th>Tarehe</th><th>Vitendo</th></tr>
+            ${matangazoRows}
+          </table>
+        </div>
+      </div>
     </div>
-    <div class="panel">
-      <h3>🤝 Maombi ya Ununuzi (Purchase Requests)</h3>
-      <table><tr><th>Zao</th><th>Kiasi</th><th>Mnunuzi</th><th>Mkulima</th><th>Tarehe</th><th>Hali</th></tr>${requestsRows}</table>
+
+    <!-- ════ 5. MAOMBI YA UNUNUZI ════ -->
+    <div class="sehemu ${activeSec==='maombi-ununuzi'?'active':''}" id="sec-maombi-ununuzi">
+      <div class="tbl-header">
+        <div>
+          <h3>🤝 Maombi ya Ununuzi (Purchase Requests)</h3>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px">Mnunuzi → Mkulima (ombi la moja kwa moja)</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span class="badge b-warn">${pPurchase} Yanayosubiri</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Zao</th><th>Kiasi</th><th>Mnunuzi</th><th>Mkulima</th><th>Hali</th><th>Tarehe</th><th>Vitendo</th></tr>
+            ${purchaseRows}
+          </table>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <h2 class="section-title">💬 Maombi ya Wanunuzi kwa Mkoa (Buyer Requests)</h2>
-  <div class="panel">
-    <table><tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Simu ya Mnunuzi</th><th>Tarehe</th><th>Hali</th></tr>${buyerReqRows}</table>
-  </div>
-
-  <!-- TRANSACTIONS -->
-  <h2 class="section-title">💰 Rekodi za Malipo</h2>
-  <div class="form-panel">
-    <h3>Ongeza Muamala Mpya</h3>
-    <form method="POST" action="/admin/transaction?siri=${safeSiri}">
-      <input name="reference" placeholder="Reference (MPESA-12345)" required>
-      <input name="buyer_phone" placeholder="Simu ya Mnunuzi">
-      <input name="farmer_phone" placeholder="Simu ya Mkulima">
-      <input name="zao" placeholder="Zao">
-      <input name="amount" placeholder="Kiasi (TZS)" type="number" required>
-      <select name="method"><option>M-Pesa</option><option>Airtel Money</option><option>Tigo Pesa</option><option>Bank</option></select>
-      <button type="submit">+ Rekodi</button>
-    </form>
-  </div>
-  <div class="panel" style="margin-bottom:24px">
-    <h3>Miamala ya Hivi Karibuni</h3>
-    <div style="overflow-x:auto">
-      <table><tr><th>Reference</th><th>Mnunuzi</th><th>Mkulima</th><th>Zao</th><th>Kiasi</th><th>Njia</th><th>Hali</th><th>Tarehe</th></tr>${txRows}</table>
+    <!-- ════ 6. MAOMBI YA WANUNUZI ════ -->
+    <div class="sehemu ${activeSec==='maombi-wanunuzi'?'active':''}" id="sec-maombi-wanunuzi">
+      <div class="tbl-header">
+        <div>
+          <h3>💬 Maombi ya Wanunuzi (Buyer Requests)</h3>
+          <p style="font-size:12px;color:var(--muted);margin-top:4px">Wanunuzi wanatafuta mazao kwa mkoa</p>
+        </div>
+        <span class="badge b-warn">${pBuyer} Yanayosubiri</span>
+      </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Zao</th><th>Kiasi</th><th>Mkoa</th><th>Simu ya Mnunuzi</th><th>Hali</th><th>Tarehe</th><th>Vitendo</th></tr>
+            ${buyerReqRows}
+          </table>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <!-- BEI TABLE -->
-  <h2 class="section-title">📊 Bei za Mazao Zilizopo</h2>
-  <div class="panel" style="margin-bottom:24px">
-    <table><tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS)</th><th></th></tr>${beiRows}</table>
-  </div>
+    <!-- ════ 7. BEI ZA MAZAO ════ -->
+    <div class="sehemu ${activeSec==='bei'?'active':''}" id="sec-bei">
+      <div class="tbl-header">
+        <h3>💰 Bei za Mazao (${beiR.rows.length})</h3>
+      </div>
 
-  <!-- WAKULIMA TABLE -->
-  <h2 class="section-title">👨‍🌾 Wakulima Waliosajiliwa</h2>
-  <div class="panel" style="margin-bottom:24px">
-    <table><tr><th>Jina</th><th>Mkoa</th><th>Wilaya</th><th>Simu</th><th>Hali</th><th></th></tr>${wakulimaRows}</table>
-  </div>
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-hd">➕ Ongeza Bei Mpya</div>
+        <form method="POST" action="/admin/ongeza?siri=${S}">
+          <div class="form-grid">
+            <input name="zao" placeholder="Zao (mfano: mahindi)" required>
+            <input name="mkoa" placeholder="Mkoa (mfano: Dodoma)" required>
+            <input name="bei" placeholder="Bei kwa kilo (TZS)" type="number" required>
+            <button class="btn-main" type="submit">+ Ongeza Bei</button>
+          </div>
+        </form>
+      </div>
 
-  <!-- RIPOTI -->
-  <h2 class="section-title">📥 Pakua Ripoti</h2>
-  <div class="ripoti-btns">
-    <a href="/admin/ripoti/wakulima?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Wakulima (PDF)</a>
-    <a href="/admin/ripoti/matangazo?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Matangazo (PDF)</a>
-    <a href="/admin/ripoti/maombi?siri=${safeSiri}" class="btn-ripoti">📄 Ripoti ya Maombi (PDF)</a>
-    <a href="/admin/ripoti-excel/wakulima?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Wakulima (Excel/CSV)</a>
-    <a href="/admin/ripoti-excel/matangazo?siri=${safeSiri}" class="btn-ripoti btn-excel">📊 Matangazo (Excel/CSV)</a>
-  </div>
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Zao</th><th>Mkoa</th><th>Bei (TZS/kilo)</th><th>Vitendo</th></tr>
+            ${beiRows}
+          </table>
+        </div>
+      </div>
+    </div>
 
-</main>
+    <!-- ════ 8. MIAMALA ════ -->
+    <div class="sehemu ${activeSec==='miamala'?'active':''}" id="sec-miamala">
+      <div class="tbl-header">
+        <h3>💳 Rekodi za Miamala</h3>
+      </div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <div class="panel-hd">➕ Rekodi Muamala Mpya</div>
+        <form method="POST" action="/admin/transaction?siri=${S}">
+          <div class="form-grid">
+            <input name="reference" placeholder="Reference (MPESA-12345)" required>
+            <input name="buyer_phone" placeholder="Simu ya Mnunuzi">
+            <input name="farmer_phone" placeholder="Simu ya Mkulima">
+            <input name="zao" placeholder="Zao">
+            <input name="amount" placeholder="Kiasi (TZS)" type="number" required>
+            <select name="method"><option>M-Pesa</option><option>Airtel Money</option><option>Tigo Pesa</option><option>Bank</option></select>
+            <button class="btn-main" type="submit">+ Rekodi</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>Reference</th><th>Mnunuzi</th><th>Mkulima</th><th>Zao</th><th>Kiasi</th><th>Njia</th><th>Hali</th><th>Tarehe</th></tr>
+            ${txRows}
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════ 9. ANALYTICS ════ -->
+    <div class="sehemu ${activeSec==='analytics'?'active':''}" id="sec-analytics">
+      <div class="tbl-header"><h3>📈 Analytics ya Kina</h3></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+        <div class="chart-card">
+          <h3>Mazao Yanayoombwa Zaidi</h3>
+          ${mahitajiBars}
+        </div>
+        <div class="chart-card">
+          <h3>Wakulima kwa Mkoa</h3>
+          ${mkoaBars}
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
+        <table>
+          <tr><th>#</th><th>Simu ya Mkulima</th><th>Wastani wa Ukadiriaji</th><th>Idadi ya Ukadiriaji</th></tr>
+          ${ratingsR.rows.map((r,i)=>`<tr><td>${['🥇','🥈','🥉','4️⃣','5️⃣'][i]||'•'}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n} ukadiriaji</td></tr>`).join('')||'<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
+        </table>
+      </div>
+    </div>
+
+    <!-- ════ 10. RIPOTI ════ -->
+    <div class="sehemu ${activeSec==='ripoti'?'active':''}" id="sec-ripoti">
+      <div class="tbl-header"><h3>📄 Pakua Ripoti</h3></div>
+      <div class="ripoti-grid">
+        <div class="ripoti-card">
+          <h4>👨‍🌾 Ripoti ya Wakulima</h4>
+          <p>Orodha kamili ya wakulima wote waliojisajili</p>
+          <a href="/ripoti/wakulima?siri=${S}" class="btn-ripoti btn-pdf">📄 Pakua PDF</a>
+          <a href="/ripoti-excel/wakulima?siri=${S}" class="btn-ripoti btn-csv">📊 Pakua CSV/Excel</a>
+        </div>
+        <div class="ripoti-card">
+          <h4>📢 Ripoti ya Matangazo</h4>
+          <p>Matangazo yote ya mazao kwenye mfumo</p>
+          <a href="/ripoti/matangazo?siri=${S}" class="btn-ripoti btn-pdf">📄 Pakua PDF</a>
+          <a href="/ripoti-excel/matangazo?siri=${S}" class="btn-ripoti btn-csv">📊 Pakua CSV/Excel</a>
+        </div>
+        <div class="ripoti-card">
+          <h4>💬 Ripoti ya Maombi</h4>
+          <p>Maombi yote ya wanunuzi kwa mkoa</p>
+          <a href="/ripoti/maombi?siri=${S}" class="btn-ripoti btn-pdf">📄 Pakua PDF</a>
+        </div>
+        <div class="ripoti-card">
+          <h4>💳 Ripoti ya Miamala</h4>
+          <p>Rekodi zote za malipo na miamala</p>
+          <a href="/ripoti/miamala?siri=${S}" class="btn-ripoti btn-pdf">📄 Pakua PDF</a>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end .content -->
+</div><!-- end .main -->
+
+<script>
+// ── Section titles
+const titles = {
+  'dashibodi':'📊 Dashibodi','wakulima':'👨‍🌾 Wakulima','wanunuzi':'🛒 Wanunuzi',
+  'matangazo':'📢 Matangazo','maombi-ununuzi':'🤝 Maombi ya Ununuzi',
+  'maombi-wanunuzi':'💬 Maombi ya Wanunuzi','bei':'💰 Bei za Mazao',
+  'miamala':'💳 Miamala','analytics':'📈 Analytics','ripoti':'📄 Ripoti',
+};
+
+function onyesha(sec) {
+  // Hide all
+  document.querySelectorAll('.sehemu').forEach(el => el.classList.remove('active'));
+  // Show selected
+  const el = document.getElementById('sec-' + sec);
+  if (el) el.classList.add('active');
+  // Update nav
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  // Find nav item by onclick attribute
+  document.querySelectorAll('.nav-item').forEach(n => {
+    if (n.getAttribute('onclick') === "onyesha('" + sec + "')") n.classList.add('active');
+  });
+  // Update topbar title
+  document.getElementById('topbar-title').textContent = titles[sec] || sec;
+  // Update URL without reload
+  const url = new URL(window.location);
+  url.searchParams.set('sec', sec);
+  window.history.replaceState({}, '', url);
+}
+
+// ── Auto hide toast after 4s
+const toast = document.getElementById('toast');
+if (toast) setTimeout(() => { toast.style.opacity='0'; toast.style.transform='translateY(-10px)'; }, 4000);
+
+// ── Initialize correct section
+const urlSec = new URL(window.location).searchParams.get('sec') || 'dashibodi';
+onyesha(urlSec);
+</script>
 </body>
 </html>`);
-
-    } catch (err) {
-      res.status(500).send('Tatizo la server: ' + err.message);
-    }
+  } catch (err) {
+    res.status(500).send('<pre>Tatizo: ' + err.message + '</pre>');
+  }
   });
 
-  // ============================================================
-  // POST /admin/thibitisha — Thibitisha mkulima
-  // ============================================================
-  router.post('/thibitisha', adminAuth, async (req, res) => {
-    await pool.query('UPDATE wakulima SET verified=TRUE WHERE id=$1', [req.body.id]);
-    res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
-  });
-
-  // ============================================================
-  // POST /admin/ongeza — Ongeza bei mpya
-  // ============================================================
-  router.post('/ongeza', adminAuth, async (req, res) => {
-    const { zao, mkoa, bei } = req.body;
-    await pool.query(
-      'INSERT INTO bei_mazao (zao, mkoa, bei) VALUES ($1, $2, $3)',
-      [zao.toLowerCase().trim(), mkoa.trim(), bei]
-    );
-    res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
-  });
-
-  // ============================================================
-  // POST /admin/futa — Futa bei
-  // ============================================================
-  router.post('/futa', adminAuth, async (req, res) => {
-    await pool.query('DELETE FROM bei_mazao WHERE id=$1', [req.body.id]);
-    res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
-  });
-
-  // ============================================================
-  // POST /admin/transaction — Ongeza muamala
-  // ============================================================
-  router.post('/transaction', adminAuth, async (req, res) => {
-    const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
-    try {
-      await pool.query(
-        'INSERT INTO transactions (reference,buyer_phone,farmer_phone,zao,amount,method) VALUES ($1,$2,$3,$4,$5,$6)',
-        [reference, buyer_phone||null, farmer_phone||null, zao||null, amount, method]
-      );
-      res.redirect('/admin?siri=' + encodeURIComponent(req.query.siri));
-    } catch (err) {
-      res.status(500).send('Tatizo: ' + err.message);
-    }
-  });
-
-  // ============================================================
-  // GET /api/admin/buyers — Vuta maombi yote ya wanunuzi (JSON)
-  // ============================================================
-  router.get('/api/buyers', adminAuth, async (req, res) => {
-    try {
-      const result = await pool.query('SELECT * FROM buyer_requests ORDER BY id DESC');
-      res.json(result.rows);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ============================================================
-  // PUT /api/admin/verify-buyer/:id — Sasisha hali ya mnunuzi
-  // ============================================================
-  router.put('/api/verify-buyer/:id', adminAuth, async (req, res) => {
-    const { id } = req.params;
-    const { verified } = req.body;
-    try {
-      await pool.query('UPDATE buyer_requests SET verified=$1 WHERE id=$2', [verified, id]);
-      res.json({ message: `Hali ya mnunuzi imesasishwa kuwa ${verified}` });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ============================================================
-  // GET /ripoti/:aina — Ripoti za HTML/PDF
-  // ============================================================
-  router.get('/ripoti/:aina', adminAuth, async (req, res) => {
+  // ═══════════════════════════════════════════════════════════
+  // RIPOTI ROUTES
+  // ═══════════════════════════════════════════════════════════
+  router.get('/ripoti/:aina', auth, async (req, res) => {
     const aina = req.params.aina;
-    if (aina.endsWith('-excel')) {
-      return res.redirect(`/admin/ripoti-excel/${aina.replace('-excel','')}?siri=${req.query.siri}`);
-    }
-
-    let title = '', rows = [], headers = [];
+    const S = req.query.siri;
+    let title='', headers=[], rows=[];
     try {
-      if (aina === 'wakulima') {
-        title = 'Ripoti ya Wakulima';
-        const r = await pool.query('SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC');
-        headers = ['Jina','Mkoa','Wilaya','Simu','Hali','Tarehe'];
-        rows = r.rows.map(w => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified?'✓ Verified':'Hajathibitishwa', new Date(w.tarehe).toLocaleDateString('sw-TZ')]);
-      } else if (aina === 'matangazo') {
-        title = 'Ripoti ya Matangazo';
-        const r = await pool.query('SELECT zao,idadi,bei,phone_number,status,tarehe FROM matangazo ORDER BY tarehe DESC');
-        headers = ['Zao','Magunia','Bei/Gunia','Simu','Hali','Tarehe'];
-        rows = r.rows.map(m => [capitalize(m.zao), m.idadi, m.bei?`TZS ${Number(m.bei).toLocaleString()}`:'-', m.phone_number, m.status||'-', new Date(m.tarehe).toLocaleDateString('sw-TZ')]);
-      } else if (aina === 'maombi') {
-        title = 'Ripoti ya Maombi ya Wanunuzi';
-        const r = await pool.query('SELECT zao,idadi,mkoa,phone_number,status,tarehe FROM buyer_requests ORDER BY tarehe DESC');
-        headers = ['Zao','Kiasi','Mkoa','Simu','Hali','Tarehe'];
-        rows = r.rows.map(b => [capitalize(b.zao), b.idadi, b.mkoa, b.phone_number, b.status||'pending', new Date(b.tarehe).toLocaleDateString('sw-TZ')]);
-      } else {
-        return res.status(404).send('Ripoti hii haipatikani.');
-      }
+      if (aina==='wakulima') {
+        title='Ripoti ya Wakulima';
+        const r = await q('SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC');
+        headers=['Jina','Mkoa','Wilaya','Simu','Amethibitishwa','Tarehe'];
+        rows=r.rows.map(w=>[w.jina,w.mkoa,w.wilaya,w.phone_number,w.verified?'Ndiyo':'Hapana',dateStr(w.tarehe)]);
+      } else if (aina==='matangazo') {
+        title='Ripoti ya Matangazo';
+        const r = await q('SELECT zao,idadi,bei,phone_number,status,tarehe FROM matangazo ORDER BY tarehe DESC');
+        headers=['Zao','Magunia','Bei/Gunia','Simu','Hali','Tarehe'];
+        rows=r.rows.map(m=>[cap(m.zao),m.idadi,m.bei?`TZS ${fmt(m.bei)}`:'-',m.phone_number,m.status||'-',dateStr(m.tarehe)]);
+      } else if (aina==='maombi') {
+        title='Ripoti ya Maombi ya Wanunuzi';
+        const r = await q('SELECT zao,idadi,mkoa,phone_number,status,tarehe FROM buyer_requests ORDER BY tarehe DESC');
+        headers=['Zao','Kiasi','Mkoa','Simu','Hali','Tarehe'];
+        rows=r.rows.map(b=>[cap(b.zao),b.idadi,b.mkoa,b.phone_number,b.status||'pending',dateStr(b.tarehe)]);
+      } else if (aina==='miamala') {
+        title='Ripoti ya Miamala';
+        const r = await q('SELECT reference,buyer_phone,farmer_phone,zao,amount,method,status,tarehe FROM transactions ORDER BY tarehe DESC');
+        headers=['Reference','Mnunuzi','Mkulima','Zao','Kiasi','Njia','Hali','Tarehe'];
+        rows=r.rows.map(t=>[t.reference,t.buyer_phone||'-',t.farmer_phone||'-',t.zao||'-',`TZS ${fmt(t.amount)}`,t.method||'-',t.status||'-',dateStr(t.tarehe)]);
+      } else return res.status(404).send('Ripoti hii haipatikani.');
 
-      const tarehe = new Date().toLocaleDateString('sw-TZ');
-      const tableRows = rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
-
-      res.setHeader('Content-Type','text/html; charset=utf-8');
+      const tbl = rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('');
+      res.setHeader('Content-Type','text/html;charset=utf-8');
       res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
-        <style>body{font-family:Arial,sans-serif;color:#1F2A24;padding:40px;}h1{color:#14432F;font-size:22px;}.meta{color:#6B7670;font-size:13px;margin-bottom:24px;}table{width:100%;border-collapse:collapse;font-size:13px;}th{background:#14432F;color:#fff;padding:10px 12px;text-align:left;}td{padding:8px 12px;border-bottom:1px solid #E6EAE8;}tr:nth-child(even) td{background:#F2F5F4;}.footer{margin-top:32px;color:#6B7670;font-size:12px;text-align:center;}@media print{.no-print{display:none}}</style>
-        </head><body>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><span style="font-size:28px">🌱</span><div><h1 style="margin:0">${title}</h1><div class="meta">Soko la Mkulima Tanzania • Tarehe: ${tarehe} • Rekodi: ${rows.length}</div></div></div>
-        <p class="no-print"><button onclick="window.print()" style="background:#14432F;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;font-size:13px">🖨️ Chapisha / Hifadhi PDF</button></p>
-        <table><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr>${tableRows||"<tr><td colspan='6' style='text-align:center;color:#6B7670'>Hakuna data bado.</td></tr>"}</table>
-        <div class="footer">Soko la Mkulima — Kuunganisha Wakulima na Wanunuzi Tanzania</div>
-        </body></html>`);
-    } catch (err) {
-      res.status(500).send('Tatizo: ' + err.message);
-    }
+      <style>body{font-family:Arial,sans-serif;color:#1F2A24;padding:40px}h1{color:#14432F;font-size:20px}.meta{color:#6B7670;font-size:13px;margin-bottom:24px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#14432F;color:#fff;padding:10px 12px;text-align:left}td{padding:8px 12px;border-bottom:1px solid #E6EAE8}tr:nth-child(even) td{background:#F2F5F4}.footer{margin-top:32px;color:#6B7670;font-size:12px;text-align:center}@media print{.no-print{display:none}}</style>
+      </head><body>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><span style="font-size:28px">🌱</span><div><h1 style="margin:0">${title}</h1><div class="meta">Soko la Mkulima Tanzania • ${new Date().toLocaleDateString('sw-TZ')} • Rekodi: ${rows.length}</div></div></div>
+      <p class="no-print"><button onclick="window.print()" style="background:#14432F;color:#fff;border:none;padding:8px 18px;border-radius:6px;cursor:pointer;margin-bottom:16px">🖨️ Chapisha / Hifadhi PDF</button></p>
+      <table><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr>${tbl||"<tr><td colspan='8' style='text-align:center;color:#6B7670;padding:20px'>Hakuna data bado.</td></tr>"}</table>
+      <div class="footer">Soko la Mkulima — Kuunganisha Wakulima na Wanunuzi Tanzania</div>
+      </body></html>`);
+    } catch(err) { res.status(500).send('Tatizo: '+err.message); }
   });
 
-  // ============================================================
-  // GET /ripoti-excel/:aina — Ripoti za Excel/CSV
-  // ============================================================
-  router.get('/ripoti-excel/:aina', adminAuth, async (req, res) => {
+  router.get('/ripoti-excel/:aina', auth, async (req, res) => {
     const aina = req.params.aina;
-    let data = [], headers = [], filename = 'ripoti';
+    let data=[], headers=[], fn='ripoti';
     try {
-      if (aina === 'wakulima') {
-        const r = await pool.query('SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC');
-        headers = ['Jina','Mkoa','Wilaya','Simu','Amethibitishwa','Tarehe'];
-        data = r.rows.map(w => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified?'Ndiyo':'Hapana', new Date(w.tarehe).toLocaleDateString('sw-TZ')]);
-        filename = 'wakulima';
-      } else if (aina === 'matangazo') {
-        const r = await pool.query('SELECT zao,idadi,bei,phone_number,active,tarehe FROM matangazo ORDER BY tarehe DESC');
-        headers = ['Zao','Magunia','Bei/Gunia','Simu','Hai','Tarehe'];
-        data = r.rows.map(m => [m.zao, m.idadi, m.bei||'', m.phone_number, m.active?'Ndiyo':'Hapana', new Date(m.tarehe).toLocaleDateString('sw-TZ')]);
-        filename = 'matangazo';
-      } else {
-        return res.status(404).send('Ripoti hii haipatikani.');
-      }
-      const csv = [headers.join(','), ...data.map(row => row.map(v=>`"${v}"`).join(','))].join('\n');
-      res.setHeader('Content-Type','text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition',`attachment; filename="${filename}-${new Date().toISOString().slice(0,10)}.csv"`);
-      res.send('\uFEFF' + csv);
-    } catch (err) {
-      res.status(500).send('Tatizo: ' + err.message);
-    }
+      if (aina==='wakulima') {
+        const r = await q('SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC');
+        headers=['Jina','Mkoa','Wilaya','Simu','Amethibitishwa','Tarehe'];
+        data=r.rows.map(w=>[w.jina,w.mkoa,w.wilaya,w.phone_number,w.verified?'Ndiyo':'Hapana',dateStr(w.tarehe)]);
+        fn='wakulima';
+      } else if (aina==='matangazo') {
+        const r = await q('SELECT zao,idadi,bei,phone_number,active,tarehe FROM matangazo ORDER BY tarehe DESC');
+        headers=['Zao','Magunia','Bei/Gunia','Simu','Hai','Tarehe'];
+        data=r.rows.map(m=>[m.zao,m.idadi,m.bei||'',m.phone_number,m.active?'Ndiyo':'Hapana',dateStr(m.tarehe)]);
+        fn='matangazo';
+      } else return res.status(404).send('Ripoti hii haipatikani.');
+      const csv=[headers.join(','),...data.map(row=>row.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','))].join('\n');
+      res.setHeader('Content-Type','text/csv;charset=utf-8');
+      res.setHeader('Content-Disposition',`attachment;filename="${fn}-${new Date().toISOString().slice(0,10)}.csv"`);
+      res.send('\uFEFF'+csv);
+    } catch(err) { res.status(500).send('Tatizo: '+err.message); }
   });
 
   return router;
