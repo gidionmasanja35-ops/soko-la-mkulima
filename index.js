@@ -10,12 +10,15 @@ const app = express(); // HAU PASWI KUSAHAU HUU MSTARI! Lazima uwe hapa.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// 1. Hakikisha umesha-create pool yako ya Database (PostgreSQL)
+// Mfano: const { Pool } = require('pg');
+// const pool = new Pool({ ... connection string / config ... });
 
-// 1. Leta file lako la admin.js (hakikisha njia/path ipo sahihi)
-const adminRoutes = require("./admin"); 
+// 2. Leta file lako la admin
+const adminModule = require("./admin"); 
 
-// 2. Unganisha router ya admin ili ipatikane kupitia mfano: /admin
-app.use("/admin", adminRoutes);
+// 3. Unganisha router na ipitishie 'pool'
+app.use("/", adminModule(pool));
 
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
