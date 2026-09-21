@@ -14,6 +14,12 @@ app.use(express.json());
 // Mfano: const { Pool } = require('pg');
 // const pool = new Pool({ ... connection string / config ... });
 
+// 1. Kutengeneza connection pool ya PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
 // 2. Leta file lako la admin
 const adminModule = require("./admin"); 
 
