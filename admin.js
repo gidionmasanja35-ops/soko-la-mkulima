@@ -1,5 +1,5 @@
 // ============================================================
-// admin.js — Admin Dashboard Kamili (Redesigned)
+// admin.js — Admin Dashboard Kamili (Fixed & Redesigned)
 // Itumie: app.use(require('./admin')(pool))
 // ============================================================
 const express = require('express');
@@ -10,7 +10,16 @@ const dateStr = d => d ? new Date(d).toLocaleDateString('sw-TZ') : '-';
 
 module.exports = function (pool) {
   const router = express.Router();
-  const q = (sql, p = []) => pool.query(sql, p).catch(e => { console.error(e.message); return { rows: [] }; });
+  
+  // Custom query function
+  const q = async (sql, p = []) => {
+    try {
+      return await pool.query(sql, p);
+    } catch (e) {
+      console.error("Database Query Error:", e.message);
+      return { rows: [] };
+    }
+  };
 
   function auth(req, res, next) {
     if (req.query.siri !== process.env.ADMIN_SECRET)
@@ -25,22 +34,20 @@ module.exports = function (pool) {
   // Thibitisha mkulima
   router.post('/admin/thibitisha', auth, async (req, res) => {
     await q('UPDATE wakulima SET verified=TRUE WHERE id=$1', [req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=wakulima&ok=Mkulima+amethibitishwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Mkulima+amethibitishwa`);
   });
 
   // Ghairi uthibitisho wa mkulima
   router.post('/admin/ghairi-thibitisha', auth, async (req, res) => {
     await q('UPDATE wakulima SET verified=FALSE WHERE id=$1', [req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=wakulima&ok=Uthibitisho+umeghairiwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Uthibitisho+umeghairiwa`);
   });
 
   // Thibitisha mnunuzi
   router.post('/admin/thibitisha-mnunuzi', auth, async (req, res) => {
-    await q('UPDATE wanunuzi SET verified=TRUE WHERE id=$1', [req.body.id]).catch(() =>
-      q('ALTER TABLE wanunuzi ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE')
-        .then(() => q('UPDATE wanunuzi SET verified=TRUE WHERE id=$1', [req.body.id]))
-    );
-    res.redirect(`/admin?siri=${req.query.siri}&sec=wanunuzi&ok=Mnunuzi+amethibitishwa`);
+    await q('ALTER TABLE wanunuzi ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE');
+    await q('UPDATE wanunuzi SET verified=TRUE WHERE id=$1', [req.body.id]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wanunuzi&ok=Mnunuzi+amethibitishwa`);
   });
 
   // Sasisha hali ya matangazo (accept / reject)
@@ -48,25 +55,25 @@ module.exports = function (pool) {
     const { id, hali } = req.body;
     const active = hali === 'accepted';
     await q('UPDATE matangazo SET status=$1, active=$2 WHERE id=$3', [hali, active, id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=matangazo&ok=Tangazo+limesasishwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limesasishwa`);
   });
 
   // Futa tangazo
   router.post('/admin/futa-tangazo', auth, async (req, res) => {
     await q('DELETE FROM matangazo WHERE id=$1', [req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=matangazo&ok=Tangazo+limefutwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limefutwa`);
   });
 
   // Sasisha hali ya purchase_request (accept/reject/pending)
   router.post('/admin/sasisha-ombi', auth, async (req, res) => {
     await q('UPDATE purchase_requests SET status=$1 WHERE id=$2', [req.body.hali, req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=maombi-ununuzi&ok=Ombi+limesasishwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-ununuzi&ok=Ombi+limesasishwa`);
   });
 
   // Sasisha hali ya buyer_request
   router.post('/admin/sasisha-buyer-ombi', auth, async (req, res) => {
     await q('UPDATE buyer_requests SET status=$1 WHERE id=$2', [req.body.hali, req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=maombi-wanunuzi&ok=Ombi+limesasishwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-wanunuzi&ok=Ombi+limesasishwa`);
   });
 
   // Ongeza bei
@@ -74,13 +81,13 @@ module.exports = function (pool) {
     const { zao, mkoa, bei } = req.body;
     await q('INSERT INTO bei_mazao (zao,mkoa,bei) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
       [zao.toLowerCase().trim(), mkoa.trim(), bei]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=bei&ok=Bei+imeongezwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imeongezwa`);
   });
 
   // Futa bei
   router.post('/admin/futa', auth, async (req, res) => {
     await q('DELETE FROM bei_mazao WHERE id=$1', [req.body.id]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=bei&ok=Bei+imefutwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imefutwa`);
   });
 
   // Ongeza muamala
@@ -88,7 +95,7 @@ module.exports = function (pool) {
     const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
     await q('INSERT INTO transactions (reference,buyer_phone,farmer_phone,zao,amount,method) VALUES ($1,$2,$3,$4,$5,$6)',
       [reference, buyer_phone || null, farmer_phone || null, zao || null, amount, method]);
-    res.redirect(`/admin?siri=${req.query.siri}&sec=miamala&ok=Muamala+umerekodiwa`);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=miamala&ok=Muamala+umerekodiwa`);
   });
 
   // API: buyers JSON
@@ -159,7 +166,7 @@ module.exports = function (pool) {
         ${hali!=='pending'?`<form method="POST" action="/${route}?siri=${S}"><input type="hidden" name="id" value="${id}"><input type="hidden" name="hali" value="pending"><button class="btn-sm b-warn" type="submit">⏳ Pending</button></form>`:''}
       </div>`;
 
-    // ── Wakulima rows ──────────────────────────────────────────
+    // ── Rows mapping ──────────────────────────────────────────
     const wakulimaRows = wakulimaR.rows.map(w => `
       <tr>
         <td><strong>${w.jina}</strong></td>
@@ -174,7 +181,6 @@ module.exports = function (pool) {
         </td>
       </tr>`).join('');
 
-    // ── Wanunuzi rows ──────────────────────────────────────────
     const wanunuziRows = wanunuziR.rows.map(w => `
       <tr>
         <td><strong>${w.jina||'-'}</strong></td>
@@ -186,7 +192,6 @@ module.exports = function (pool) {
         </td>
       </tr>`).join('') || '<tr><td colspan="6" class="empty-row">Hakuna wanunuzi bado.</td></tr>';
 
-    // ── Matangazo rows ─────────────────────────────────────────
     const matangazoRows = matangazoR.rows.map(m => `
       <tr>
         <td><strong>${cap(m.zao)}</strong></td>
@@ -205,7 +210,6 @@ module.exports = function (pool) {
         </td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty-row">Hakuna matangazo bado.</td></tr>';
 
-    // ── Purchase requests rows ─────────────────────────────────
     const purchaseRows = purchaseR.rows.map(b => `
       <tr>
         <td><strong>${cap(b.zao||'-')}</strong></td>
@@ -217,7 +221,6 @@ module.exports = function (pool) {
         <td>${actionBtns(b.id, b.status||'pending', 'admin/sasisha-ombi')}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
 
-    // ── Buyer requests rows ────────────────────────────────────
     const buyerReqRows = buyerReqR.rows.map(b => `
       <tr>
         <td><strong>${cap(b.zao||'-')}</strong></td>
@@ -229,7 +232,6 @@ module.exports = function (pool) {
         <td>${actionBtns(b.id, b.status||'pending', 'admin/sasisha-buyer-ombi')}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
 
-    // ── Bei rows ───────────────────────────────────────────────
     const beiRows = beiR.rows.map(r => `
       <tr>
         <td><strong>${cap(r.zao)}</strong></td>
@@ -238,7 +240,6 @@ module.exports = function (pool) {
         <td><form method="POST" action="/admin/futa?siri=${S}" onsubmit="return confirm('Futa?')"><input type="hidden" name="id" value="${r.id}"><button class="btn-sm b-red" type="submit">🗑 Futa</button></form></td>
       </tr>`).join('') || '<tr><td colspan="4" class="empty-row">Hakuna bei bado.</td></tr>';
 
-    // ── Transactions rows ──────────────────────────────────────
     const txRows = txR.rows.map(t => `
       <tr>
         <td><code>${t.reference||'-'}</code></td>
@@ -251,7 +252,6 @@ module.exports = function (pool) {
         <td>${dateStr(t.tarehe)}</td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty-row">Hakuna miamala bado.</td></tr>';
 
-    // ── Mikoa bar ──────────────────────────────────────────────
     const mkoaBars = mkoaR.rows.map((r,i) => {
       const w = Math.round((parseInt(r.n)/mkMax)*100);
       return `<div class="bar-row"><span class="bar-lbl">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i%rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
@@ -286,6 +286,7 @@ module.exports = function (pool) {
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);display:flex;height:100vh;overflow:hidden;}
 a{text-decoration:none;color:inherit;}
+
 /* ── SIDEBAR ── */
 .sidebar{
   width:var(--sidebar);background:var(--kijani-giza);color:#fff;
@@ -312,6 +313,7 @@ a{text-decoration:none;color:inherit;}
 .nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;min-width:20px;text-align:center;}
 .nav-badge.warn{background:var(--yellow);}
 .sidebar-footer{margin-top:auto;padding:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#4A7A60;}
+
 /* ── MAIN ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
 .topbar{background:var(--kadi);border-bottom:1px solid var(--mpaka);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
@@ -321,13 +323,16 @@ a{text-decoration:none;color:inherit;}
 .content{flex:1;overflow-y:auto;padding:24px 28px;}
 .content::-webkit-scrollbar{width:6px;}
 .content::-webkit-scrollbar-thumb{background:var(--mpaka);border-radius:3px;}
+
 /* ── TOAST ── */
 .toast{position:fixed;top:20px;right:20px;background:#2E8B57;color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;z-index:999;opacity:0;transform:translateY(-10px);transition:all .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.15);}
 .toast.show{opacity:1;transform:translateY(0);}
+
 /* ── SECTIONS ── */
 .sehemu{display:none;animation:fadeUp .3s ease;}
 .sehemu.active{display:block;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+
 /* ── STATS ── */
 .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
 .stat-card{background:var(--kadi);border-radius:var(--radius);padding:18px 20px;border:1px solid var(--mpaka);}
@@ -335,6 +340,7 @@ a{text-decoration:none;color:inherit;}
 .stat-num{font-size:28px;font-weight:800;line-height:1;}
 .stat-lbl{font-size:12px;color:var(--muted);margin-top:4px;}
 .stat-delta{font-size:11px;color:var(--kijani);margin-top:5px;font-weight:600;}
+
 /* ── CHARTS ── */
 .charts-row{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px;margin-bottom:22px;}
 .chart-card{background:var(--kadi);border-radius:var(--radius);padding:18px;border:1px solid var(--mpaka);}
@@ -346,6 +352,7 @@ a{text-decoration:none;color:inherit;}
 .bar-val{font-size:12px;color:var(--muted);width:24px;text-align:right;}
 .wiki-lbl{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);padding:4px 28px 0;}
 .muted{font-size:13px;color:var(--muted);}
+
 /* ── ALERTS ── */
 .alerts-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:22px;}
 .alert-card{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:10px;border:1px solid;font-size:13px;}
@@ -356,6 +363,7 @@ a{text-decoration:none;color:inherit;}
 .alert-icon{font-size:22px;}
 .alert-title{font-weight:700;font-size:13px;}
 .alert-msg{font-size:12px;color:#555;margin-top:2px;}
+
 /* ── TABLES ── */
 .tbl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
 .tbl-header h3{font-size:15px;font-weight:700;}
@@ -368,13 +376,13 @@ tr:hover td{background:#FAFCFB;}
 tr:last-child td{border-bottom:none;}
 .empty-row{text-align:center;color:var(--muted);padding:28px!important;}
 code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
-/* ── BADGES ── */
+
+/* ── BADGES & BUTTONS ── */
 .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
 .b-ok{background:#DCFCE7;color:#166534;}
 .b-red{background:#FEE2E2;color:#991B1B;}
 .b-warn{background:#FEF3C7;color:#92400E;}
 .b-gray{background:var(--bg);color:var(--muted);}
-/* ── BUTTONS ── */
 .btn-sm{border:none;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11.5px;font-weight:700;transition:opacity .15s;}
 .btn-sm:hover{opacity:.82;}
 .btn-sm.b-ok{background:#DCFCE7;color:#166534;}
@@ -382,12 +390,14 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 .btn-sm.b-warn{background:#FEF3C7;color:#92400E;}
 .btn-sm.b-gray{background:var(--bg);color:var(--muted);border:1px solid var(--mpaka);}
 .action-row{display:flex;gap:6px;flex-wrap:wrap;}
+
 /* ── FORMS ── */
 .form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;padding:16px 18px;}
 .form-grid input,.form-grid select{padding:9px 12px;border:1px solid var(--mpaka);border-radius:8px;font-size:13px;background:#fff;}
 .form-grid input:focus,.form-grid select:focus{outline:none;border-color:var(--kijani);}
 .btn-main{background:var(--kijani);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:13.5px;font-weight:700;transition:all .2s;}
 .btn-main:hover{background:#256A43;}
+
 /* ── RIPOTI ── */
 .ripoti-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;}
 .ripoti-card{background:var(--kadi);border:1px solid var(--mpaka);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:10px;}
@@ -396,14 +406,14 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 .btn-ripoti{display:inline-block;padding:9px 16px;border-radius:8px;font-size:12.5px;font-weight:700;text-align:center;}
 .btn-pdf{background:var(--kijani-giza);color:#fff;}
 .btn-csv{background:#166534;color:#fff;}
-/* ── RESPONSIVE ── */
+
 @media(max-width:1100px){.stats-grid{grid-template-columns:1fr 1fr;}.charts-row{grid-template-columns:1fr;}}
 @media(max-width:700px){.sidebar{width:60px;}.brand-text,.nav-item span,.nav-badge{display:none;}.main{overflow:auto;}}
 </style>
 </head>
 <body>
 
-<!-- ═════ SIDEBAR ═════ -->
+<!-- SIDEBAR -->
 <aside class="sidebar">
   <div class="brand">
     <div class="brand-icon">🌱</div>
@@ -462,9 +472,8 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
   </div>
 </aside>
 
-<!-- ═════ MAIN ═════ -->
+<!-- MAIN -->
 <div class="main">
-  <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
       <div>
@@ -479,16 +488,12 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
     </div>
   </div>
 
-  <!-- CONTENT -->
   <div class="content">
 
-    <!-- ════ TOAST ════ -->
     ${okMsg?`<div class="toast show" id="toast">✅ ${okMsg}</div>`:''}
 
-    <!-- ════ 1. DASHIBODI ════ -->
+    <!-- 1. DASHIBODI -->
     <div class="sehemu ${activeSec==='dashibodi'?'active':''}" id="sec-dashibodi">
-
-      <!-- Stats -->
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon" style="background:#DCFCE7">👨‍🌾</div>
@@ -513,7 +518,6 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
         </div>
       </div>
 
-      <!-- Alerts -->
       <div class="alerts-row">
         ${pHawaja>0?`<div class="alert-card alert-warn"><span class="alert-icon">👨‍🌾</span><div><div class="alert-title">Uthibitisho Unahitajika</div><div class="alert-msg">${pHawaja} wakulima hawajathibitishwa — <a href="#" onclick="onyesha('wakulima')" style="color:#92400E;font-weight:700">Angalia →</a></div></div></div>`:''}
         ${pPurchase>0?`<div class="alert-card alert-info"><span class="alert-icon">🤝</span><div><div class="alert-title">Maombi Yanayosubiri</div><div class="alert-msg">${pPurchase} purchase requests — <a href="#" onclick="onyesha('maombi-ununuzi')" style="color:#1D4ED8;font-weight:700">Simamia →</a></div></div></div>`:''}
@@ -521,7 +525,6 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
         ${(pPurchase+pBuyer+pHawaja)===0?`<div class="alert-card alert-ok"><span class="alert-icon">✅</span><div><div class="alert-title">Kila kitu kiko sawa!</div><div class="alert-msg">Hakuna kazi zinazohitaji umakini sasa hivi.</div></div></div>`:''}
       </div>
 
-      <!-- Charts -->
       <div class="charts-row">
         <div class="chart-card">
           <h3>📈 Matangazo — Wiki Iliyopita</h3>
@@ -542,7 +545,6 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
         </div>
       </div>
 
-      <!-- Top ratings -->
       <div class="panel">
         <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
         <table>
@@ -552,7 +554,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 2. WAKULIMA ════ -->
+    <!-- 2. WAKULIMA -->
     <div class="sehemu ${activeSec==='wakulima'?'active':''}" id="sec-wakulima">
       <div class="tbl-header">
         <div>
@@ -574,7 +576,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 3. WANUNUZI ════ -->
+    <!-- 3. WANUNUZI -->
     <div class="sehemu ${activeSec==='wanunuzi'?'active':''}" id="sec-wanunuzi">
       <div class="tbl-header">
         <h3>🛒 Wanunuzi Wote (${statWanunuzi})</h3>
@@ -589,7 +591,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 4. MATANGAZO ════ -->
+    <!-- 4. MATANGAZO -->
     <div class="sehemu ${activeSec==='matangazo'?'active':''}" id="sec-matangazo">
       <div class="tbl-header">
         <h3>📢 Matangazo Yote (${statMatangazo})</h3>
@@ -609,7 +611,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 5. MAOMBI YA UNUNUZI ════ -->
+    <!-- 5. MAOMBI YA UNUNUZI -->
     <div class="sehemu ${activeSec==='maombi-ununuzi'?'active':''}" id="sec-maombi-ununuzi">
       <div class="tbl-header">
         <div>
@@ -630,7 +632,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 6. MAOMBI YA WANUNUZI ════ -->
+    <!-- 6. MAOMBI YA WANUNUZI -->
     <div class="sehemu ${activeSec==='maombi-wanunuzi'?'active':''}" id="sec-maombi-wanunuzi">
       <div class="tbl-header">
         <div>
@@ -649,7 +651,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 7. BEI ZA MAZAO ════ -->
+    <!-- 7. BEI ZA MAZAO -->
     <div class="sehemu ${activeSec==='bei'?'active':''}" id="sec-bei">
       <div class="tbl-header">
         <h3>💰 Bei za Mazao (${beiR.rows.length})</h3>
@@ -677,7 +679,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 8. MIAMALA ════ -->
+    <!-- 8. MIAMALA -->
     <div class="sehemu ${activeSec==='miamala'?'active':''}" id="sec-miamala">
       <div class="tbl-header">
         <h3>💳 Rekodi za Miamala</h3>
@@ -708,7 +710,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-    <!-- ════ 9. ANALYTICS ════ -->
+    <!-- 9. ANALYTICS -->
     <div class="sehemu ${activeSec==='analytics'?'active':''}" id="sec-analytics">
       <div class="tbl-header"><h3>📈 Analytics ya Kina</h3></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
@@ -725,12 +727,11 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
         <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
         <table>
           <tr><th>#</th><th>Simu ya Mkulima</th><th>Wastani wa Ukadiriaji</th><th>Idadi ya Ukadiriaji</th></tr>
-          ${ratingsR.rows.map((r,i)=>`<tr><td>${['🥇','🥈','🥉','4️⃣','5️⃣'][i]||'•'}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n} ukadiriaji</td></tr>`).join('')||'<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
-        </table>
+        ${ratingsR.rows.map((r,i)=>`<tr><td>${['🥇','🥈','🥉','4️⃣','5️⃣'][i] || '•'}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n} ukadiriaji</td></tr>`).join('') || '<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
       </div>
     </div>
 
-    <!-- ════ 10. RIPOTI ════ -->
+    <!-- 10. RIPOTI -->
     <div class="sehemu ${activeSec==='ripoti'?'active':''}" id="sec-ripoti">
       <div class="tbl-header"><h3>📄 Pakua Ripoti</h3></div>
       <div class="ripoti-grid">
@@ -759,11 +760,10 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
     </div>
 
-  </div><!-- end .content -->
-</div><!-- end .main -->
+  </div>
+</div>
 
 <script>
-// ── Section titles
 const titles = {
   'dashibodi':'📊 Dashibodi','wakulima':'👨‍🌾 Wakulima','wanunuzi':'🛒 Wanunuzi',
   'matangazo':'📢 Matangazo','maombi-ununuzi':'🤝 Maombi ya Ununuzi',
@@ -772,38 +772,29 @@ const titles = {
 };
 
 function onyesha(sec) {
-  // Hide all
   document.querySelectorAll('.sehemu').forEach(el => el.classList.remove('active'));
-  // Show selected
   const el = document.getElementById('sec-' + sec);
   if (el) el.classList.add('active');
-  // Update nav
+  
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  // Find nav item by onclick attribute
   document.querySelectorAll('.nav-item').forEach(n => {
     if (n.getAttribute('onclick') === "onyesha('" + sec + "')") n.classList.add('active');
   });
-  // Update topbar title
+  
   document.getElementById('topbar-title').textContent = titles[sec] || sec;
-  // Update URL without reload
   const url = new URL(window.location);
   url.searchParams.set('sec', sec);
   window.history.replaceState({}, '', url);
 }
 
-// ── Auto hide toast after 4s
 const toast = document.getElementById('toast');
 if (toast) setTimeout(() => { toast.style.opacity='0'; toast.style.transform='translateY(-10px)'; }, 4000);
 
-// ── Initialize correct section
 const urlSec = new URL(window.location).searchParams.get('sec') || 'dashibodi';
 onyesha(urlSec);
 </script>
 </body>
 </html>`);
-  } catch (err) {
-    res.status(500).send('<pre>Tatizo: ' + err.message + '</pre>');
-  }
   });
 
   // ═══════════════════════════════════════════════════════════
@@ -811,7 +802,6 @@ onyesha(urlSec);
   // ═══════════════════════════════════════════════════════════
   router.get('/ripoti/:aina', auth, async (req, res) => {
     const aina = req.params.aina;
-    const S = req.query.siri;
     let title='', headers=[], rows=[];
     try {
       if (aina==='wakulima') {
@@ -864,6 +854,7 @@ onyesha(urlSec);
         data=r.rows.map(m=>[m.zao,m.idadi,m.bei||'',m.phone_number,m.active?'Ndiyo':'Hapana',dateStr(m.tarehe)]);
         fn='matangazo';
       } else return res.status(404).send('Ripoti hii haipatikani.');
+
       const csv=[headers.join(','),...data.map(row=>row.map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','))].join('\n');
       res.setHeader('Content-Type','text/csv;charset=utf-8');
       res.setHeader('Content-Disposition',`attachment;filename="${fn}-${new Date().toISOString().slice(0,10)}.csv"`);
