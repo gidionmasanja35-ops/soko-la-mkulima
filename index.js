@@ -10,10 +10,6 @@ const app = express(); // HAU PASWI KUSAHAU HUU MSTARI! Lazima uwe hapa.
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// 1. Hakikisha umesha-create pool yako ya Database (PostgreSQL)
-// Mfano: const { Pool } = require('pg');
-// const pool = new Pool({ ... connection string / config ... });
-
 // 1. Kutengeneza connection pool ya PostgreSQL
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -126,11 +122,6 @@ async function tumaSMS(simu, ujumbe) {
     console.error("SMS Error - Message:", smsErr.message);
   }
 }
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
 
 // =====================================================
 // DATABASE STARTUP MIGRATION
@@ -613,7 +604,7 @@ app.get("/", (req, res) => {
 
     footer {
       background: #0D2B1E; color: #6B9C7E; padding: 40px;
-      display: flex; justify-content: space-between; align-items: center;
+      display: flex; justify-space-between; align-items: center;
       flex-wrap: wrap; gap: 16px;
     }
     footer .brand { color: #fff; font-weight: 700; font-size: 16px; }
