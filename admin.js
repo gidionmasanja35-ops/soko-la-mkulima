@@ -1,5 +1,5 @@
 // ============================================================
-// admin.js — Admin Dashboard Kamili (Fixed, Redesigned & Real-Time SSE)
+// admin.js — Admin Dashboard Kamili (Mobile Responsive + Floating Sidebar + Admin Notifications)
 // Itumie: app.use(require('./admin')(pool))
 // ============================================================
 const express = require("express");
@@ -28,7 +28,7 @@ module.exports = function (pool) {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // SSE ENDPOINT (REAL-TIME UPDATES)
+  // SSE ENDPOINT (REAL-TIME UPDATES & NOTIFICATIONS)
   // ═══════════════════════════════════════════════════════════
   router.get("/admin/stream", auth, (req, res) => {
     res.setHeader("Content-Type", "text/event-stream");
@@ -60,7 +60,7 @@ module.exports = function (pool) {
 
         if (hasUpdate) {
           lastCheck = new Date();
-          res.write(`data: ${JSON.stringify({ reload: true })}\n\n`);
+          res.write(`data: ${JSON.stringify({ reload: true, msg: "Kuna mabadiliko au taarifa mpya kwenye mfumo!" })}\n\n`);
         }
       } catch (err) {
         console.error("SSE Error:", err.message);
@@ -76,118 +76,61 @@ module.exports = function (pool) {
   // POST ROUTES (Actions)
   // ═══════════════════════════════════════════════════════════
 
-  // Thibitisha mkulima
   router.post("/admin/thibitisha", auth, async (req, res) => {
     await q("UPDATE wakulima SET verified=TRUE WHERE id=$1", [req.body.id]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Mkulima+amethibitishwa`,
-    );
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Mkulima+amethibitishwa`);
   });
 
-  // Ghairi uthibitisho wa mkulima
   router.post("/admin/ghairi-thibitisha", auth, async (req, res) => {
     await q("UPDATE wakulima SET verified=FALSE WHERE id=$1", [req.body.id]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Uthibitisho+umeghairiwa`,
-    );
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wakulima&ok=Uthibitisho+umeghairiwa`);
   });
 
-  // Thibitisha mnunuzi
   router.post("/admin/thibitisha-mnunuzi", auth, async (req, res) => {
-    await q(
-      "ALTER TABLE wanunuzi ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE",
-    );
+    await q("ALTER TABLE wanunuzi ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE");
     await q("UPDATE wanunuzi SET verified=TRUE WHERE id=$1", [req.body.id]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wanunuzi&ok=Mnunuzi+amethibitishwa`,
-    );
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=wanunuzi&ok=Mnunuzi+amethibitishwa`);
   });
 
-  // Sasisha hali ya matangazo (accept / reject)
   router.post("/admin/sasisha-tangazo", auth, async (req, res) => {
     const { id, hali } = req.body;
     const active = hali === "accepted";
-    await q("UPDATE matangazo SET status=$1, active=$2 WHERE id=$3", [
-      hali,
-      active,
-      id,
-    ]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limesasishwa`,
-    );
+    await q("UPDATE matangazo SET status=$1, active=$2 WHERE id=$3", [hali, active, id]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limesasishwa`);
   });
 
-  // Futa tangazo
   router.post("/admin/futa-tangazo", auth, async (req, res) => {
     await q("DELETE FROM matangazo WHERE id=$1", [req.body.id]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limefutwa`,
-    );
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=matangazo&ok=Tangazo+limefutwa`);
   });
 
-  // Sasisha hali ya purchase_request (accept/reject/pending)
   router.post("/admin/sasisha-ombi", auth, async (req, res) => {
-    await q("UPDATE purchase_requests SET status=$1 WHERE id=$2", [
-      req.body.hali,
-      req.body.id,
-    ]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-ununuzi&ok=Ombi+limesasishwa`,
-    );
+    await q("UPDATE purchase_requests SET status=$1 WHERE id=$2", [req.body.hali, req.body.id]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-ununuzi&ok=Ombi+limesasishwa`);
   });
 
-  // Sasisha hali ya buyer_request
   router.post("/admin/sasisha-buyer-ombi", auth, async (req, res) => {
-    await q("UPDATE buyer_requests SET status=$1 WHERE id=$2", [
-      req.body.hali,
-      req.body.id,
-    ]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-wanunuzi&ok=Ombi+limesasishwa`,
-    );
+    await q("UPDATE buyer_requests SET status=$1 WHERE id=$2", [req.body.hali, req.body.id]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=maombi-wanunuzi&ok=Ombi+limesasishwa`);
   });
 
-  // Ongeza bei
   router.post("/admin/ongeza", auth, async (req, res) => {
     const { zao, mkoa, bei } = req.body;
-    await q(
-      "INSERT INTO bei_mazao (zao,mkoa,bei) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-      [zao.toLowerCase().trim(), mkoa.trim(), bei],
-    );
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imeongezwa`,
-    );
+    await q("INSERT INTO bei_mazao (zao,mkoa,bei) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [zao.toLowerCase().trim(), mkoa.trim(), bei]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imeongezwa`);
   });
 
-  // Futa bei
   router.post("/admin/futa", auth, async (req, res) => {
     await q("DELETE FROM bei_mazao WHERE id=$1", [req.body.id]);
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imefutwa`,
-    );
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=bei&ok=Bei+imefutwa`);
   });
 
-  // Ongeza muamala
   router.post("/admin/transaction", auth, async (req, res) => {
-    const { reference, buyer_phone, farmer_phone, zao, amount, method } =
-      req.body;
-    await q(
-      "INSERT INTO transactions (reference,buyer_phone,farmer_phone,zao,amount,method) VALUES ($1,$2,$3,$4,$5,$6)",
-      [
-        reference,
-        buyer_phone || null,
-        farmer_phone || null,
-        zao || null,
-        amount,
-        method,
-      ],
-    );
-    res.redirect(
-      `/admin?siri=${encodeURIComponent(req.query.siri)}&sec=miamala&ok=Muamala+umerekodiwa`,
-    );
+    const { reference, buyer_phone, farmer_phone, zao, amount, method } = req.body;
+    await q("INSERT INTO transactions (reference,buyer_phone,farmer_phone,zao,amount,method) VALUES ($1,$2,$3,$4,$5,$6)", [reference, buyer_phone || null, farmer_phone || null, zao || null, amount, method]);
+    res.redirect(`/admin?siri=${encodeURIComponent(req.query.siri)}&sec=miamala&ok=Muamala+umerekodiwa`);
   });
 
-  // API: buyers JSON
   router.get("/api/admin/buyers", auth, async (req, res) => {
     const r = await q("SELECT * FROM buyer_requests ORDER BY id DESC");
     res.json(r.rows);
@@ -202,22 +145,9 @@ module.exports = function (pool) {
     const activeSec = req.query.sec || "dashibodi";
 
     const [
-      beiR,
-      wakulimaR,
-      matangazoR,
-      purchaseR,
-      buyerReqR,
-      wanunuziR,
-      mahitajiR,
-      mazaoR,
-      wikiR,
-      mkoaR,
-      ratingsR,
-      pendingPurchase,
-      pendingBuyer,
-      hawajaThibitiwa,
-      wapyaWakulima,
-      txR,
+      beiR, wakulimaR, matangazoR, purchaseR, buyerReqR, wanunuziR,
+      mahitajiR, mazaoR, wikiR, mkoaR, ratingsR,
+      pendingPurchase, pendingBuyer, hawajaThibitiwa, wapyaWakulima, txR
     ] = await Promise.all([
       q("SELECT * FROM bei_mazao ORDER BY zao,mkoa"),
       q("SELECT * FROM wakulima ORDER BY tarehe DESC"),
@@ -225,31 +155,18 @@ module.exports = function (pool) {
       q("SELECT * FROM purchase_requests ORDER BY tarehe DESC LIMIT 100"),
       q("SELECT * FROM buyer_requests ORDER BY tarehe DESC LIMIT 100"),
       q("SELECT * FROM wanunuzi ORDER BY tarehe DESC LIMIT 100"),
-      q(
-        "SELECT zao,COUNT(*) as n FROM buyer_requests GROUP BY zao ORDER BY n DESC LIMIT 6",
-      ),
-      q(
-        "SELECT zao,COUNT(*) as n FROM matangazo GROUP BY zao ORDER BY n DESC LIMIT 6",
-      ),
-      q(`SELECT TO_CHAR(d.siku,'DD/MM') AS lbl, COUNT(m.id) AS n
-         FROM generate_series(CURRENT_DATE-6,CURRENT_DATE,INTERVAL '1 day') d(siku)
-         LEFT JOIN matangazo m ON DATE(m.tarehe)=d.siku GROUP BY d.siku,lbl ORDER BY d.siku`),
-      q(
-        "SELECT mkoa,COUNT(*) as n FROM wakulima GROUP BY mkoa ORDER BY n DESC LIMIT 8",
-      ),
-      q(
-        "SELECT farmer_phone,ROUND(AVG(nyota),1) w,COUNT(*) n FROM ratings GROUP BY farmer_phone ORDER BY w DESC LIMIT 5",
-      ),
+      q("SELECT zao,COUNT(*) as n FROM buyer_requests GROUP BY zao ORDER BY n DESC LIMIT 6"),
+      q("SELECT zao,COUNT(*) as n FROM matangazo GROUP BY zao ORDER BY n DESC LIMIT 6"),
+      q(`SELECT TO_CHAR(d.siku,'DD/MM') AS lbl, COUNT(m.id) AS n FROM generate_series(CURRENT_DATE-6,CURRENT_DATE,INTERVAL '1 day') d(siku) LEFT JOIN matangazo m ON DATE(m.tarehe)=d.siku GROUP BY d.siku,lbl ORDER BY d.siku`),
+      q("SELECT mkoa,COUNT(*) as n FROM wakulima GROUP BY mkoa ORDER BY n DESC LIMIT 8"),
+      q("SELECT farmer_phone,ROUND(AVG(nyota),1) w,COUNT(*) n FROM ratings GROUP BY farmer_phone ORDER BY w DESC LIMIT 5"),
       q("SELECT COUNT(*) n FROM purchase_requests WHERE status='pending'"),
       q("SELECT COUNT(*) n FROM buyer_requests WHERE status='pending'"),
       q("SELECT COUNT(*) n FROM wakulima WHERE verified=FALSE"),
-      q(
-        "SELECT COUNT(*) n FROM wakulima WHERE tarehe>NOW()-INTERVAL '24 hours'",
-      ),
+      q("SELECT COUNT(*) n FROM wakulima WHERE tarehe>NOW()-INTERVAL '24 hours'"),
       q("SELECT * FROM transactions ORDER BY tarehe DESC LIMIT 30"),
     ]);
 
-    // ── Stats ─────────────────────────────────────────────────
     const statWakulima = wakulimaR.rows.length;
     const statMatangazo = matangazoR.rows.length;
     const statWanunuzi = wanunuziR.rows.length;
@@ -259,26 +176,13 @@ module.exports = function (pool) {
     const pHawaja = parseInt(hawajaThibitiwa.rows[0]?.n || 0);
     const pWapya = parseInt(wapyaWakulima.rows[0]?.n || 0);
 
-    // ── Bar chart data ─────────────────────────────────────────
-    const rangi = [
-      "#2E8B57",
-      "#E67E22",
-      "#3B82C4",
-      "#8B5FBF",
-      "#D7263D",
-      "#1B5E3F",
-      "#F59E0B",
-      "#06B6D4",
-    ];
+    const rangi = ["#2E8B57", "#E67E22", "#3B82C4", "#8B5FBF", "#D7263D", "#1B5E3F", "#F59E0B", "#06B6D4"];
     const mkMax = Math.max(1, ...mkoaR.rows.map((r) => parseInt(r.n)));
     const mahMax = Math.max(1, ...mahitajiR.rows.map((r) => parseInt(r.n)));
 
-    // ── HTML renderers ─────────────────────────────────────────
     const badge = (s) => {
-      if (s === "accepted" || s === "active")
-        return `<span class="badge b-ok">✓ ${cap(s)}</span>`;
-      if (s === "rejected")
-        return `<span class="badge b-red">✗ ${cap(s)}</span>`;
+      if (s === "accepted" || s === "active") return `<span class="badge b-ok">✓ ${cap(s)}</span>`;
+      if (s === "rejected") return `<span class="badge b-red">✗ ${cap(s)}</span>`;
       return `<span class="badge b-warn">⏳ Pending</span>`;
     };
 
@@ -289,10 +193,7 @@ module.exports = function (pool) {
         ${hali !== "pending" ? `<form method="POST" action="/${route}?siri=${S}"><input type="hidden" name="id" value="${id}"><input type="hidden" name="hali" value="pending"><button class="btn-sm b-warn" type="submit">⏳ Pending</button></form>` : ""}
       </div>`;
 
-    // ── Rows mapping ──────────────────────────────────────────
-    const wakulimaRows = wakulimaR.rows
-      .map(
-        (w) => `
+    const wakulimaRows = wakulimaR.rows.map((w) => `
       <tr>
         <td><strong>${w.jina}</strong></td>
         <td>${w.mkoa}</td><td>${w.wilaya || "-"}</td><td>${w.phone_number}</td>
@@ -304,14 +205,9 @@ module.exports = function (pool) {
             ${w.verified ? `<form method="POST" action="/admin/ghairi-thibitisha?siri=${S}"><input type="hidden" name="id" value="${w.id}"><button class="btn-sm b-warn" type="submit">↩ Ghairi</button></form>` : ""}
           </div>
         </td>
-      </tr>`,
-      )
-      .join("");
+      </tr>`).join("");
 
-    const wanunuziRows =
-      wanunuziR.rows
-        .map(
-          (w) => `
+    const wanunuziRows = wanunuziR.rows.map((w) => `
       <tr>
         <td><strong>${w.jina || "-"}</strong></td>
         <td>${w.mkoa || "-"}</td><td>${w.phone_number || w.simu || "-"}</td>
@@ -320,15 +216,9 @@ module.exports = function (pool) {
         <td>
           ${!w.verified ? `<form method="POST" action="/admin/thibitisha-mnunuzi?siri=${S}"><input type="hidden" name="id" value="${w.id}"><button class="btn-sm b-ok" type="submit">✓ Thibitisha</button></form>` : '<span style="color:#2E8B57;font-size:12px">✓ Amethibitishwa</span>'}
         </td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="6" class="empty-row">Hakuna wanunuzi bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="6" class="empty-row">Hakuna wanunuzi bado.</td></tr>';
 
-    const matangazoRows =
-      matangazoR.rows
-        .map(
-          (m) => `
+    const matangazoRows = matangazoR.rows.map((m) => `
       <tr>
         <td><strong>${cap(m.zao)}</strong></td>
         <td>${m.idadi}</td>
@@ -344,15 +234,9 @@ module.exports = function (pool) {
             <form method="POST" action="/admin/futa-tangazo?siri=${S}" onsubmit="return confirm('Futa?')"><input type="hidden" name="id" value="${m.id}"><button class="btn-sm b-gray" type="submit">🗑</button></form>
           </div>
         </td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="8" class="empty-row">Hakuna matangazo bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="8" class="empty-row">Hakuna matangazo bado.</td></tr>';
 
-    const purchaseRows =
-      purchaseR.rows
-        .map(
-          (b) => `
+    const purchaseRows = purchaseR.rows.map((b) => `
       <tr>
         <td><strong>${cap(b.zao || "-")}</strong></td>
         <td>${b.idadi || "-"}</td>
@@ -361,15 +245,9 @@ module.exports = function (pool) {
         <td>${badge(b.status || "pending")}</td>
         <td>${dateStr(b.tarehe)}</td>
         <td>${actionBtns(b.id, b.status || "pending", "admin/sasisha-ombi")}</td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
 
-    const buyerReqRows =
-      buyerReqR.rows
-        .map(
-          (b) => `
+    const buyerReqRows = buyerReqR.rows.map((b) => `
       <tr>
         <td><strong>${cap(b.zao || "-")}</strong></td>
         <td>${b.idadi || "-"}</td>
@@ -378,29 +256,17 @@ module.exports = function (pool) {
         <td>${badge(b.status || "pending")}</td>
         <td>${dateStr(b.tarehe)}</td>
         <td>${actionBtns(b.id, b.status || "pending", "admin/sasisha-buyer-ombi")}</td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="7" class="empty-row">Hakuna maombi bado.</td></tr>';
 
-    const beiRows =
-      beiR.rows
-        .map(
-          (r) => `
+    const beiRows = beiR.rows.map((r) => `
       <tr>
         <td><strong>${cap(r.zao)}</strong></td>
         <td>${r.mkoa}</td>
         <td>TZS ${fmt(r.bei)}</td>
         <td><form method="POST" action="/admin/futa?siri=${S}" onsubmit="return confirm('Futa?')"><input type="hidden" name="id" value="${r.id}"><button class="btn-sm b-red" type="submit">🗑 Futa</button></form></td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="4" class="empty-row">Hakuna bei bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="4" class="empty-row">Hakuna bei bado.</td></tr>';
 
-    const txRows =
-      txR.rows
-        .map(
-          (t) => `
+    const txRows = txR.rows.map((t) => `
       <tr>
         <td><code>${t.reference || "-"}</code></td>
         <td>${t.buyer_phone || "-"}</td>
@@ -410,46 +276,23 @@ module.exports = function (pool) {
         <td>${t.method || "-"}</td>
         <td>${badge(t.status || "pending")}</td>
         <td>${dateStr(t.tarehe)}</td>
-      </tr>`,
-        )
-        .join("") ||
-      '<tr><td colspan="8" class="empty-row">Hakuna miamala bado.</td></tr>';
+      </tr>`).join("") || '<tr><td colspan="8" class="empty-row">Hakuna miamala bado.</td></tr>';
 
-    const mkoaBars =
-      mkoaR.rows
-        .map((r, i) => {
-          const w = Math.round((parseInt(r.n) / mkMax) * 100);
-          return `<div class="bar-row"><span class="bar-lbl">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i % rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
-        })
-        .join("") || "<p class='muted'>Hakuna data.</p>";
+    const mkoaBars = mkoaR.rows.map((r, i) => {
+      const w = Math.round((parseInt(r.n) / mkMax) * 100);
+      return `<div class="bar-row"><span class="bar-lbl">${r.mkoa}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i % rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
+    }).join("") || "<p class='muted'>Hakuna data.</p>";
 
-    const mahitajiBars =
-      mahitajiR.rows
-        .map((r, i) => {
-          const w = Math.round((parseInt(r.n) / mahMax) * 100);
-          return `<div class="bar-row"><span class="bar-lbl">${cap(r.zao)}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i % rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
-        })
-        .join("") || "<p class='muted'>Hakuna maombi.</p>";
+    const mahitajiBars = mahitajiR.rows.map((r, i) => {
+      const w = Math.round((parseInt(r.n) / mahMax) * 100);
+      return `<div class="bar-row"><span class="bar-lbl">${cap(r.zao)}</span><div class="bar-track"><div class="bar-fill" style="width:${w}%;background:${rangi[i % rangi.length]}"></div></div><span class="bar-val">${r.n}</span></div>`;
+    }).join("") || "<p class='muted'>Hakuna maombi.</p>";
 
-    // ── Wiki chart ─────────────────────────────────────────────
     const wikiN = wikiR.rows.map((r) => parseInt(r.n) || 0);
     const wikiMax = Math.max(1, ...wikiN);
-    const W = 480,
-      H = 140,
-      pad = 30,
-      step = (W - pad * 2) / (wikiN.length - 1 || 1);
-    const pts = wikiN
-      .map(
-        (v, i) =>
-          `${pad + i * step},${H - pad - (v / wikiMax) * (H - pad * 2)}`,
-      )
-      .join(" ");
-    const dots = wikiN
-      .map(
-        (v, i) =>
-          `<circle cx="${pad + i * step}" cy="${H - pad - (v / wikiMax) * (H - pad * 2)}" r="4" fill="#2E8B57" stroke="#fff" stroke-width="1.5"/>`,
-      )
-      .join("");
+    const W = 480, H = 140, pad = 30, step = (W - pad * 2) / (wikiN.length - 1 || 1);
+    const pts = wikiN.map((v, i) => `${pad + i * step},${H - pad - (v / wikiMax) * (H - pad * 2)}`).join(" ");
+    const dots = wikiN.map((v, i) => `<circle cx="${pad + i * step}" cy="${H - pad - (v / wikiMax) * (H - pad * 2)}" r="4" fill="#2E8B57" stroke="#fff" stroke-width="1.5"/>`).join("");
     const wikiLbls = wikiR.rows.map((r) => `<span>${r.lbl}</span>`).join("");
 
     res.send(`<!DOCTYPE html>
@@ -469,18 +312,32 @@ module.exports = function (pool) {
 body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--txt);display:flex;height:100vh;overflow:hidden;}
 a{text-decoration:none;color:inherit;}
 
+/* ── SIDEBAR OVERLAY FOR MOBILE ── */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+  backdrop-filter: blur(2px);
+}
+.sidebar-overlay.active { display: block; }
+
 /* ── SIDEBAR ── */
 .sidebar{
   width:var(--sidebar);background:var(--kijani-giza);color:#fff;
   display:flex;flex-direction:column;height:100vh;overflow-y:auto;
-  transition:width .3s ease;flex-shrink:0;position:relative;z-index:10;
+  transition:transform .3s ease, width .3s ease;flex-shrink:0;position:relative;z-index:100;
 }
 .sidebar::-webkit-scrollbar{width:4px;}
 .sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:2px;}
-.brand{padding:20px 18px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;}
+.brand{padding:20px 18px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.brand-main{display:flex;align-items:center;gap:10px;}
 .brand-icon{font-size:28px;flex-shrink:0;}
 .brand-text h1{font-size:15px;font-weight:700;letter-spacing:.3px;}
 .brand-text p{font-size:11px;color:#7BBFA0;margin-top:2px;}
+.close-sidebar-btn{display:none;background:none;border:none;color:#fff;font-size:22px;cursor:pointer;}
+
 .nav-group{padding:12px 10px 6px;font-size:10px;font-weight:700;color:#4A7A60;letter-spacing:1px;text-transform:uppercase;}
 .nav-item{
   display:flex;align-items:center;gap:10px;
@@ -497,12 +354,13 @@ a{text-decoration:none;color:inherit;}
 .sidebar-footer{margin-top:auto;padding:14px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#4A7A60;}
 
 /* ── MAIN ── */
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
-.topbar{background:var(--kadi);border-bottom:1px solid var(--mpaka);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;width:100%;}
+.topbar{background:var(--kadi);border-bottom:1px solid var(--mpaka);padding:0 20px;height:60px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
 .topbar-left{display:flex;align-items:center;gap:12px;}
+.menu-btn{display:none;background:none;border:none;font-size:24px;cursor:pointer;color:var(--txt);padding:4px;}
 .topbar-left h2{font-size:17px;font-weight:700;}
 .topbar-left p{font-size:12px;color:var(--muted);}
-.content{flex:1;overflow-y:auto;padding:24px 28px;}
+.content{flex:1;overflow-y:auto;padding:20px;}
 .content::-webkit-scrollbar{width:6px;}
 .content::-webkit-scrollbar-thumb{background:var(--mpaka);border-radius:3px;}
 
@@ -516,7 +374,7 @@ a{text-decoration:none;color:inherit;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
 
 /* ── STATS ── */
-.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:22px;}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:16px;margin-bottom:22px;}
 .stat-card{background:var(--kadi);border-radius:var(--radius);padding:18px 20px;border:1px solid var(--mpaka);}
 .stat-icon{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:10px;}
 .stat-num{font-size:28px;font-weight:800;line-height:1;}
@@ -524,7 +382,7 @@ a{text-decoration:none;color:inherit;}
 .stat-delta{font-size:11px;color:var(--kijani);margin-top:5px;font-weight:600;}
 
 /* ── CHARTS ── */
-.charts-row{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:16px;margin-bottom:22px;}
+.charts-row{display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;margin-bottom:22px;}
 .chart-card{background:var(--kadi);border-radius:var(--radius);padding:18px;border:1px solid var(--mpaka);}
 .chart-card h3{font-size:14px;font-weight:700;margin-bottom:14px;color:var(--txt);}
 .bar-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
@@ -547,11 +405,11 @@ a{text-decoration:none;color:inherit;}
 .alert-msg{font-size:12px;color:#555;margin-top:2px;}
 
 /* ── TABLES ── */
-.tbl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+.tbl-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
 .tbl-header h3{font-size:15px;font-weight:700;}
 .panel{background:var(--kadi);border-radius:var(--radius);border:1px solid var(--mpaka);overflow:hidden;margin-bottom:20px;}
 .panel-hd{padding:16px 18px;border-bottom:1px solid var(--mpaka);font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:space-between;}
-table{width:100%;border-collapse:collapse;font-size:13px;}
+table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap;}
 th{text-align:left;font-size:11.5px;color:var(--muted);font-weight:600;padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--mpaka);}
 td{padding:10px 14px;border-bottom:1px solid var(--mpaka);}
 tr:hover td{background:#FAFCFB;}
@@ -589,20 +447,39 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 .btn-pdf{background:var(--kijani-giza);color:#fff;}
 .btn-csv{background:#166534;color:#fff;}
 
-@media(max-width:1100px){.stats-grid{grid-template-columns:1fr 1fr;}.charts-row{grid-template-columns:1fr;}}
-@media(max-width:700px){.sidebar{width:60px;}.brand-text,.nav-item span,.nav-badge{display:none;}.main{overflow:auto;}}
+/* ── RESPONSIVE DESIGN (SIMU / TABLET) ── */
+@media(max-width: 850px){
+  .menu-btn { display: block; }
+  .close-sidebar-btn { display: block; }
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.2);
+  }
+  .sidebar.open {
+    transform: translateX(0);
+  }
+  .topbar-badge { display: none; }
+}
 </style>
 </head>
 <body>
 
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar(false)"></div>
+
 <!-- SIDEBAR -->
-<aside class="sidebar">
+<aside class="sidebar" id="sidebar">
   <div class="brand">
-    <div class="brand-icon">🌱</div>
-    <div class="brand-text">
-      <h1>Soko la Mkulima</h1>
-      <p>Admin Dashboard</p>
+    <div class="brand-main">
+      <div class="brand-icon">🌱</div>
+      <div class="brand-text">
+        <h1>Soko la Mkulima</h1>
+        <p>Admin Dashboard</p>
+      </div>
     </div>
+    <button class="close-sidebar-btn" onclick="toggleSidebar(false)">✕</button>
   </div>
 
   <div class="nav-group">Muhtasari</div>
@@ -658,15 +535,16 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 <div class="main">
   <div class="topbar">
     <div class="topbar-left">
+      <button class="menu-btn" onclick="toggleSidebar(true)">☰</button>
       <div>
         <h2 id="topbar-title">📊 Dashibodi</h2>
-        <p>${new Date().toLocaleDateString("sw-TZ", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+        <p>${new Date().toLocaleDateString("sw-TZ", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}</p>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      ${pWapya > 0 ? `<span style="background:#DCFCE7;color:#166534;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">👨‍🌾 +${pWapya} wapya leo</span>` : ""}
-      ${pPurchase + pBuyer > 0 ? `<span style="background:#FEF3C7;color:#92400E;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">⏳ ${pPurchase + pBuyer} maombi yanayosubiri</span>` : ""}
-      <span style="font-size:12px;color:var(--muted)">Admin</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <button id="notifBtn" onclick="ombaNotificationPermission()" style="border:none;background:var(--kijani-mwanga);color:var(--kijani);padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">🔔 Wezesha Notification</button>
+      ${pWapya > 0 ? `<span class="topbar-badge" style="background:#DCFCE7;color:#166534;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">👨‍🌾 +${pWapya} wapya</span>` : ""}
+      ${pPurchase + pBuyer > 0 ? `<span class="topbar-badge" style="background:#FEF3C7;color:#92400E;padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700">⏳ ${pPurchase + pBuyer} maombi</span>` : ""}
     </div>
   </div>
 
@@ -729,10 +607,12 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 
       <div class="panel">
         <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
-        <table>
-          <tr><th>#</th><th>Simu</th><th>Ukadiriaji</th><th>Idadi</th></tr>
-          ${ratingsR.rows.map((r, i) => `<tr><td>${["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i]}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n}</td></tr>`).join("") || '<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
-        </table>
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>#</th><th>Simu</th><th>Ukadiriaji</th><th>Idadi</th></tr>
+            ${ratingsR.rows.map((r, i) => `<tr><td>${["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i]}</td><td>${r.farmer_phone}</td><td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td><td>${r.n}</td></tr>`).join("") || '<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
+          </table>
+        </div>
       </div>
     </div>
 
@@ -895,7 +775,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
     <!-- 9. ANALYTICS -->
     <div class="sehemu ${activeSec === "analytics" ? "active" : ""}" id="sec-analytics">
       <div class="tbl-header"><h3>📈 Analytics ya Kina</h3></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:16px;margin-bottom:20px;">
         <div class="chart-card">
           <h3>Mazao Yanayoombwa Zaidi</h3>
           ${mahitajiBars}
@@ -907,17 +787,19 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
       </div>
       <div class="panel">
         <div class="panel-hd">⭐ Wakulima Waliokadiriwa Zaidi</div>
-        <table>
-          <tr><th>#</th><th>Simu ya Mkulima</th><th>Wastani wa Ukadiriaji</th><th>Idadi ya Ukadiriaji</th></tr>
-       ${ratingsR.rows.map((r, i) => `
-  <tr>
-    <td>${["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i] || "•"}</td>
-    <td>${r.farmer_phone}</td>
-    <td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td>
-    <td>${r.n} ukadiriaji</td>
-  </tr>
-`).join("") || '<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
-        </table>
+        <div style="overflow-x:auto">
+          <table>
+            <tr><th>#</th><th>Simu ya Mkulima</th><th>Wastani wa Ukadiriaji</th><th>Idadi ya Ukadiriaji</th></tr>
+            ${ratingsR.rows.map((r, i) => `
+              <tr>
+                <td>${["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i] || "•"}</td>
+                <td>${r.farmer_phone}</td>
+                <td><strong style="color:#F59E0B">⭐ ${r.w}</strong></td>
+                <td>${r.n} ukadiriaji</td>
+              </tr>
+            `).join("") || '<tr><td colspan="4" class="empty-row">Hakuna ukadiriaji bado.</td></tr>'}
+          </table>
+        </div>
       </div>
     </div>
 
@@ -961,6 +843,18 @@ const titles = {
   'miamala':'💳 Miamala','analytics':'📈 Analytics','ripoti':'📄 Ripoti',
 };
 
+function toggleSidebar(show) {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  if (show) {
+    sidebar.classList.add('open');
+    overlay.classList.add('active');
+  } else {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('active');
+  }
+}
+
 function onyesha(sec) {
   document.querySelectorAll('.sehemu').forEach(el => el.classList.remove('active'));
   const el = document.getElementById('sec-' + sec);
@@ -975,6 +869,11 @@ function onyesha(sec) {
   const url = new URL(window.location);
   url.searchParams.set('sec', sec);
   window.history.replaceState({}, '', url);
+
+  // Funga sidebar ukichagua menu ikiwa upo kwenye simu
+  if (window.innerWidth <= 850) {
+    toggleSidebar(false);
+  }
 }
 
 const toast = document.getElementById('toast');
@@ -982,6 +881,42 @@ if (toast) setTimeout(() => { toast.style.opacity='0'; toast.style.transform='tr
 
 const urlSec = new URL(window.location).searchParams.get('sec') || 'dashibodi';
 onyesha(urlSec);
+
+// ═══════════════════════════════════════════════════════════
+// NOTIFICATION LOGIC FOR ADMIN
+// ═══════════════════════════════════════════════════════════
+function ombaNotificationPermission() {
+  if (!("Notification" in window)) {
+    alert("Kivinjari hiki hakisaidii taarifa za Notification.");
+    return;
+  }
+  Notification.requestPermission().then((permission) => {
+    if (permission === "granted") {
+      updateNotifBtn();
+      new Notification("Soko la Mkulima", {
+        body: "Notification zimewezeshwa kikamilifu!",
+        icon: "🌱"
+      });
+    }
+  });
+}
+
+function updateNotifBtn() {
+  const btn = document.getElementById('notifBtn');
+  if (btn && "Notification" in window && Notification.permission === "granted") {
+    btn.style.display = 'none';
+  }
+}
+updateNotifBtn();
+
+function onyeshaPushNotification(msg) {
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Soko la Mkulima Admin", {
+      body: msg || "Kuna mabadiliko au taarifa mpya kwenye mfumo!",
+      icon: "🌱"
+    });
+  }
+}
 
 // ═══════════════════════════════════════════════════════════
 // REAL-TIME AUTO-REFRESH CLIENT LOGIC (SSE)
@@ -993,9 +928,11 @@ if (!!window.EventSource && siriParam) {
     try {
       const data = JSON.parse(e.data);
       if (data.reload) {
-        // Hifadhi sehemu (section) iliyokuwa wazi wakati wa kurefresh
-        const currentSec = new URLSearchParams(window.location.search).get('sec') || 'dashibodi';
-        window.location.href = window.location.pathname + '?siri=' + encodeURIComponent(siriParam) + '&sec=' + currentSec;
+        onyeshaPushNotification(data.msg);
+        setTimeout(() => {
+          const currentSec = new URLSearchParams(window.location.search).get('sec') || 'dashibodi';
+          window.location.href = window.location.pathname + '?siri=' + encodeURIComponent(siriParam) + '&sec=' + currentSec;
+        }, 1000);
       }
     } catch(err) {
       console.error(err);
@@ -1012,89 +949,31 @@ if (!!window.EventSource && siriParam) {
   // ═══════════════════════════════════════════════════════════
   router.get("/ripoti/:aina", auth, async (req, res) => {
     const aina = req.params.aina;
-    let title = "",
-      headers = [],
-      rows = [];
+    let title = "", headers = [], rows = [];
     try {
       if (aina === "wakulima") {
         title = "Ripoti ya Wakulima";
-        const r = await q(
-          "SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC",
-        );
-        headers = [
-          "Jina",
-          "Mkoa",
-          "Wilaya",
-          "Simu",
-          "Amethibitishwa",
-          "Tarehe",
-        ];
-        rows = r.rows.map((w) => [
-          w.jina,
-          w.mkoa,
-          w.wilaya,
-          w.phone_number,
-          w.verified ? "Ndiyo" : "Hapana",
-          dateStr(w.tarehe),
-        ]);
+        const r = await q("SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC");
+        headers = ["Jina", "Mkoa", "Wilaya", "Simu", "Amethibitishwa", "Tarehe"];
+        rows = r.rows.map((w) => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified ? "Ndiyo" : "Hapana", dateStr(w.tarehe)]);
       } else if (aina === "matangazo") {
         title = "Ripoti ya Matangazo";
-        const r = await q(
-          "SELECT zao,idadi,bei,phone_number,status,tarehe FROM matangazo ORDER BY tarehe DESC",
-        );
+        const r = await q("SELECT zao,idadi,bei,phone_number,status,tarehe FROM matangazo ORDER BY tarehe DESC");
         headers = ["Zao", "Magunia", "Bei/Gunia", "Simu", "Hali", "Tarehe"];
-        rows = r.rows.map((m) => [
-          cap(m.zao),
-          m.idadi,
-          m.bei ? `TZS ${fmt(m.bei)}` : "-",
-          m.phone_number,
-          m.status || "-",
-          dateStr(m.tarehe),
-        ]);
+        rows = r.rows.map((m) => [cap(m.zao), m.idadi, m.bei ? `TZS ${fmt(m.bei)}` : "-", m.phone_number, m.status || "-", dateStr(m.tarehe)]);
       } else if (aina === "maombi") {
         title = "Ripoti ya Maombi ya Wanunuzi";
-        const r = await q(
-          "SELECT zao,idadi,mkoa,phone_number,status,tarehe FROM buyer_requests ORDER BY tarehe DESC",
-        );
+        const r = await q("SELECT zao,idadi,mkoa,phone_number,status,tarehe FROM buyer_requests ORDER BY tarehe DESC");
         headers = ["Zao", "Kiasi", "Mkoa", "Simu", "Hali", "Tarehe"];
-        rows = r.rows.map((b) => [
-          cap(b.zao),
-          b.idadi,
-          b.mkoa,
-          b.phone_number,
-          b.status || "pending",
-          dateStr(b.tarehe),
-        ]);
+        rows = r.rows.map((b) => [cap(b.zao), b.idadi, b.mkoa, b.phone_number, b.status || "pending", dateStr(b.tarehe)]);
       } else if (aina === "miamala") {
         title = "Ripoti ya Miamala";
-        const r = await q(
-          "SELECT reference,buyer_phone,farmer_phone,zao,amount,method,status,tarehe FROM transactions ORDER BY tarehe DESC",
-        );
-        headers = [
-          "Reference",
-          "Mnunuzi",
-          "Mkulima",
-          "Zao",
-          "Kiasi",
-          "Njia",
-          "Hali",
-          "Tarehe",
-        ];
-        rows = r.rows.map((t) => [
-          t.reference,
-          t.buyer_phone || "-",
-          t.farmer_phone || "-",
-          t.zao || "-",
-          `TZS ${fmt(t.amount)}`,
-          t.method || "-",
-          t.status || "-",
-          dateStr(t.tarehe),
-        ]);
+        const r = await q("SELECT reference,buyer_phone,farmer_phone,zao,amount,method,status,tarehe FROM transactions ORDER BY tarehe DESC");
+        headers = ["Reference", "Mnunuzi", "Mkulima", "Zao", "Kiasi", "Njia", "Hali", "Tarehe"];
+        rows = r.rows.map((t) => [t.reference, t.buyer_phone || "-", t.farmer_phone || "-", t.zao || "-", `TZS ${fmt(t.amount)}`, t.method || "-", t.status || "-", dateStr(t.tarehe)]);
       } else return res.status(404).send("Ripoti hii haipatikani.");
 
-      const tbl = rows
-        .map((row) => `<tr>${row.map((c) => `<td>${c}</td>`).join("")}</tr>`)
-        .join("");
+      const tbl = rows.map((row) => `<tr>${row.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("");
       res.setHeader("Content-Type", "text/html;charset=utf-8");
       res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
       <style>body{font-family:Arial,sans-serif;color:#1F2A24;padding:40px}h1{color:#14432F;font-size:20px}.meta{color:#6B7670;font-size:13px;margin-bottom:24px}table{width:100%;border-collapse:collapse;font-size:13px}th{background:#14432F;color:#fff;padding:10px 12px;text-align:left}td{padding:8px 12px;border-bottom:1px solid #E6EAE8}tr:nth-child(even) td{background:#F2F5F4}.footer{margin-top:32px;color:#6B7670;font-size:12px;text-align:center}@media print{.no-print{display:none}}</style>
@@ -1111,58 +990,23 @@ if (!!window.EventSource && siriParam) {
 
   router.get("/ripoti-excel/:aina", auth, async (req, res) => {
     const aina = req.params.aina;
-    let data = [],
-      headers = [],
-      fn = "ripoti";
+    let data = [], headers = [], fn = "ripoti";
     try {
       if (aina === "wakulima") {
-        const r = await q(
-          "SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC",
-        );
-        headers = [
-          "Jina",
-          "Mkoa",
-          "Wilaya",
-          "Simu",
-          "Amethibitishwa",
-          "Tarehe",
-        ];
-        data = r.rows.map((w) => [
-          w.jina,
-          w.mkoa,
-          w.wilaya,
-          w.phone_number,
-          w.verified ? "Ndiyo" : "Hapana",
-          dateStr(w.tarehe),
-        ]);
+        const r = await q("SELECT jina,mkoa,wilaya,phone_number,verified,tarehe FROM wakulima ORDER BY tarehe DESC");
+        headers = ["Jina", "Mkoa", "Wilaya", "Simu", "Amethibitishwa", "Tarehe"];
+        data = r.rows.map((w) => [w.jina, w.mkoa, w.wilaya, w.phone_number, w.verified ? "Ndiyo" : "Hapana", dateStr(w.tarehe)]);
         fn = "wakulima";
       } else if (aina === "matangazo") {
-        const r = await q(
-          "SELECT zao,idadi,bei,phone_number,active,tarehe FROM matangazo ORDER BY tarehe DESC",
-        );
+        const r = await q("SELECT zao,idadi,bei,phone_number,active,tarehe FROM matangazo ORDER BY tarehe DESC");
         headers = ["Zao", "Magunia", "Bei/Gunia", "Simu", "Hai", "Tarehe"];
-        data = r.rows.map((m) => [
-          m.zao,
-          m.idadi,
-          m.bei || "",
-          m.phone_number,
-          m.active ? "Ndiyo" : "Hapana",
-          dateStr(m.tarehe),
-        ]);
+        data = r.rows.map((m) => [m.zao, m.idadi, m.bei || "", m.phone_number, m.active ? "Ndiyo" : "Hapana", dateStr(m.tarehe)]);
         fn = "matangazo";
       } else return res.status(404).send("Ripoti hii haipatikani.");
 
-      const csv = [
-        headers.join(","),
-        ...data.map((row) =>
-          row.map((v) => `"${String(v || "").replace(/"/g, '""')}"`).join(","),
-        ),
-      ].join("\n");
+      const csv = [headers.join(","), ...data.map((row) => row.map((v) => `"${String(v || "").replace(/"/g, '""')}"`).join(","))].join("\n");
       res.setHeader("Content-Type", "text/csv;charset=utf-8");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment;filename="${fn}-${new Date().toISOString().slice(0, 10)}.csv"`,
-      );
+      res.setHeader("Content-Disposition", `attachment;filename="${fn}-${new Date().toISOString().slice(0, 10)}.csv"`);
       res.send("\uFEFF" + csv);
     } catch (err) {
       res.status(500).send("Tatizo: " + err.message);
