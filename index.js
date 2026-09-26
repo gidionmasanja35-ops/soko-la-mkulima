@@ -1889,6 +1889,36 @@ app.get("/api/bei", async (req, res) => {
   }
 });
 
+// POST /api/bei (Sehemu ya kuweka au kusasisha bei ikiwemo source_url)
+app.post("/api/bei", async (req, res) => {
+  try {
+    const { zao, bei, mkoa, tarehe, source_url } = req.body;
+
+    const query = `
+      INSERT INTO bei_mazao (zao, bei, mkoa, tarehe, source_url)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (zao, mkoa, tarehe)
+      DO UPDATE SET
+        bei = EXCLUDED.bei,
+        source_url = EXCLUDED.source_url,
+        updated_at = NOW();
+    `;
+
+    await pool.query(query, [
+      zao.toLowerCase().trim(),
+      bei,
+      mkoa.trim(),
+      tarehe || new Date(),
+      source_url || null,
+    ]);
+
+    res.json({ success: true, message: "Bei imesasishwa kikamilifu!" });
+  } catch (err) {
+    console.error("Error kwenye /api/bei POST:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/mazao
 app.get("/api/mazao", async (req, res) => {
   try {
@@ -2457,4 +2487,6 @@ app.get("/soko", async (req, res) => {
 
 
 const PORT = process.env.PORT || 3000;
-
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
