@@ -625,7 +625,7 @@ code{font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;}
 
   <div class="nav-group">Muhtasari</div>
   <div class="nav-item ${activeSec === "dashibodi" ? "active" : ""}" onclick="onyesha('dashibodi')">
-    <span class="nav-icon">📊</span> <span>Dashibodi</span>
+    <span class="nav-icon">📊</span> <span>Dashbodi</span>
   </div>
 
   <div class="nav-group">Watu</div>
