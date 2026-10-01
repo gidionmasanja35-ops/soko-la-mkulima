@@ -6,6 +6,7 @@
 require("dotenv").config();
 const axios = require("axios");
 const cheerio = require("cheerio");
+const PDFParser = require("pdf2json");
 const { Pool } = require("pg");
 
 const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
@@ -52,6 +53,21 @@ async function getLatestPdfUrl() {
   return pdfUrl;
 }
 
+// Helper Function ya kusoma PDF kupitia pdf2json
+function extractTextFromPdfBuffer(pdfBuffer) {
+  return new Promise((resolve, reject) => {
+    const pdfParser = new PDFParser(this, 1); // 1 = text mode tu
+
+    pdfParser.on("pdfParser_dataError", (errData) => reject(errData.parserError));
+    pdfParser.on("pdfParser_dataReady", () => {
+      const rawText = pdfParser.getRawTextContent();
+      resolve(rawText);
+    });
+
+    pdfParser.parseBuffer(pdfBuffer);
+  });
+}
+
 // 2. SOMA MAANDISHI YALIYOPO NDANI YA PDF NA CHUKUA MAZAO NA BEI
 async function fetchDailyPrices() {
   const pdfUrl = await getLatestPdfUrl();
@@ -72,20 +88,8 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  // Custom PDF parser wa Node.js kutatua tatizo la import ya pdf-parse
-  let pdfText = "";
-  try {
-    const PdfParse = require("pdf-parse/lib/pdf-parse.js");
-    const pdfData = await PdfParse(pdfBuffer.data);
-    pdfText = pdfData.text;
-  } catch (err) {
-    // Fallback ikitokea require ya ndani imezuiwa na package exports
-    const pdf = require("pdf-parse");
-    const parseFn = typeof pdf === "function" ? pdf : (pdf.default || Object.values(pdf).find(v => typeof v === "function"));
-    if (!parseFn) throw new Error("Kosa: pdf-parse haijaingizwa vizuri kwenye runtime.");
-    const pdfData = await parseFn(pdfBuffer.data);
-    pdfText = pdfData.text;
-  }
+  // Tumia pdf2json parser badala ya pdf-parse
+  const pdfText = await extractTextFromPdfBuffer(pdfBuffer.data);
 
   const records = [];
   const lines = pdfText.split("\n");
