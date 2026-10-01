@@ -6,7 +6,7 @@
 require("dotenv").config();
 const axios = require("axios");
 const cheerio = require("cheerio");
-const pdfParse = require("pdf-parse");
+const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { Pool } = require("pg");
 
 const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
