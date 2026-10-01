@@ -6,7 +6,6 @@
 require("dotenv").config();
 const axios = require("axios");
 const cheerio = require("cheerio");
-const pdfParse = require("pdf-parse");
 const { Pool } = require("pg");
 
 const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
@@ -73,8 +72,9 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  // Kushughulikia import za CommonJS/ESM za pdf-parse kwa usalama
-  const parsePdf = typeof pdfParse === "function" ? pdfParse : pdfParse.default;
+  // Dynamic import ya pdf-parse kuondoa migogoro ya CommonJS/ESM
+  const pdfModule = await import("pdf-parse");
+  const parsePdf = pdfModule.default || pdfModule;
   const pdfData = await parsePdf(pdfBuffer.data);
   const pdfText = pdfData.text;
 
