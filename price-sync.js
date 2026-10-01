@@ -8,7 +8,7 @@ const axios = require("axios"); //[cite: 5]
 const cheerio = require("cheerio");
 const { Pool } = require("pg"); //[cite: 5]
 
-const MIT_MARKET_URL = "https://www.mit.go.tz/services/daily-market-prices";
+const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL, //[cite: 5]
