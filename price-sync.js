@@ -88,41 +88,50 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  // Tumia pdf2json parser badala ya pdf-parse
   const pdfText = await extractTextFromPdfBuffer(pdfBuffer.data);
+
+  // Print sample kidogo kwenye logs kuona mtindo wa majina/maandishi yaliyomo
+  console.log("--- SAMPULI YA PDF TEXT ---");
+  console.log(pdfText.substring(0, 400));
+  console.log("----------------------------");
 
   const records = [];
   const lines = pdfText.split("\n");
 
-  const validRegions = ["arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", "tabora", "tanga", "unguja"];
+  const validRegions = [
+    "arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", 
+    "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", 
+    "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", 
+    "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", 
+    "tabora", "tanga", "unguja"
+  ];
 
   for (let line of lines) {
     const cleanedLine = cleanText(line);
     if (!cleanedLine) continue;
 
-    const parts = cleanedLine.split(/\s+|\t+|,/);
+    let matchedRegion = "";
+    for (let r of validRegions) {
+      if (cleanedLine.toLowerCase().includes(r)) {
+        matchedRegion = r.charAt(0).toUpperCase() + r.slice(1);
+        break;
+      }
+    }
 
-    if (parts.length >= 3) {
-      const possiblePrice = cleanPrice(parts[parts.length - 1]);
-      
-      if (possiblePrice && possiblePrice > 100) {
-        let region = "";
-        let crop = "";
+    if (matchedRegion) {
+      const numbersInLine = cleanedLine.match(/\d[\d,.]*/g);
+      if (numbersInLine && numbersInLine.length > 0) {
+        const rawPrice = numbersInLine[numbersInLine.length - 1];
+        const possiblePrice = cleanPrice(rawPrice);
 
-        for (let r of validRegions) {
-          if (cleanedLine.toLowerCase().includes(r)) {
-            region = r.charAt(0).toUpperCase() + r.slice(1);
-            break;
-          }
-        }
-
-        if (region) {
-          crop = parts[0].toLowerCase();
+        if (possiblePrice && possiblePrice > 100) {
+          const words = cleanedLine.split(/\s+/);
+          const crop = words[0].toLowerCase();
           const pricePerKg = possiblePrice > 5000 ? Number((possiblePrice / 100).toFixed(2)) : possiblePrice;
 
           records.push({
             zao: crop,
-            mkoa: region,
+            mkoa: matchedRegion,
             bei: pricePerKg,
             unit: "TZS/kg",
           });
@@ -131,6 +140,7 @@ async function fetchDailyPrices() {
     }
   }
 
+  console.log(`📊 Zimepatikana kumbukumbu ${records.length} kutoka kwenye PDF.`);
   return records;
 }
 
