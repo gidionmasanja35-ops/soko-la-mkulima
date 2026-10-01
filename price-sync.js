@@ -3,17 +3,18 @@
 // DAILY PRICE SYNC (WIZARA YA VIWANDA NA BIASHARA)
 // ============================================================
 
-require("dotenv").config(); //[cite: 5]
-const axios = require("axios"); //[cite: 5]
+require("dotenv").config();
+const axios = require("axios");
 const cheerio = require("cheerio");
-const { Pool } = require("pg"); //[cite: 5]
+const pdfParse = require("pdf-parse");
+const { Pool } = require("pg");
 
 const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL, //[cite: 5]
+  connectionString: process.env.DATABASE_URL,
   ssl: {
-    rejectUnauthorized: false, //[cite: 5]
+    rejectUnauthorized: false,
   },
 });
 
@@ -29,49 +30,107 @@ function cleanPrice(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-async function fetchDailyPrices() {
-  console.log("🔎 Inachukua bei za mazao kutoka wizarani...");
-
+// 1. TAFUTA PDF LINK YA HIVI KARIBUNI KUTOKA TOVUTI YA WIZARA
+async function getLatestPdfUrl() {
+  console.log("🔎 Inafungua ukurasa wa Wizara kutafuta PDF ya hivi karibuni...");
+  
   const response = await axios.get(MIT_MARKET_URL, {
-    headers: { "User-Agent": "Mozilla/5.0 Soko-la-Mkulima-Bot" },
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Soko-la-Mkulima-Bot" },
     timeout: 30000,
   });
 
   const $ = cheerio.load(response.data);
-  const records = [];
+  let pdfUrl = "";
 
-  $("table#daily-prices-table tbody tr").each((index, element) => {
-    const cols = $(element).find("td");
-
-    if (cols.length >= 4) {
-      const crop = cleanText($(cols[0]).text()).toLowerCase();
-      const region = cleanText($(cols[1]).text());
-      const price100kg = cleanPrice($(cols[2]).text());
-
-      if (crop && region && price100kg) {
-        const pricePerKg = Number((price100kg / 100).toFixed(2));
-
-        records.push({
-          zao: crop,
-          mkoa: region,
-          bei: pricePerKg,
-          unit: "TZS/kg",
-        });
-      }
+  // Tafta link zote zinazoishia na .pdf au zilizomo kwenye downloads
+  $("a").each((i, el) => {
+    const href = $(el).attr("href");
+    if (href && (href.toLowerCase().includes(".pdf") || href.toLowerCase().includes("download"))) {
+      pdfUrl = href.startsWith("http") ? href : `https://www.viwanda.go.tz${href.startsWith("/") ? "" : "/"}${href}`;
+      return false; // Chukua ya kwanza kabisa (ya karibuni zaidi)
     }
   });
+
+  return pdfUrl;
+}
+
+// 2. SOMA MAANDISHI YALIYOPO NDANI YA PDF NA CHUKUA MAZAO NA BEI
+async function fetchDailyPrices() {
+  const pdfUrl = await getLatestPdfUrl();
+
+  if (!pdfUrl) {
+    console.log("⚠️ Hakuna link ya PDF iliyopatikana kwenye ukurasa wa Wizara.");
+    return [];
+  }
+
+  console.log(`📄 Imepata PDF URL: ${pdfUrl}`);
+  console.log("📥 Inapakua file la PDF kutoka wizarani...");
+
+  const pdfBuffer = await axios.get(pdfUrl, {
+    responseType: "arraybuffer",
+    headers: { "User-Agent": "Mozilla/5.0 Soko-la-Mkulima-Bot" },
+    timeout: 30000,
+  });
+
+  console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
+  const pdfData = await pdfParse(pdfBuffer.data);
+  const pdfText = pdfData.text;
+
+  const records = [];
+  const lines = pdfText.split("\n");
+
+  // Orodha ya mikoa ya Tanzania kwa ajili ya validation
+  const validRegions = ["arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", "tabora", "tanga", "unguja"];
+
+  for (let line of lines) {
+    const cleanedLine = cleanText(line);
+    if (!cleanedLine) continue;
+
+    // Mfano wa muundo: Mahindi Dar es Salaam 120,000 au Mahindi, Arusha, 90000
+    const parts = cleanedLine.split(/\s+|\t+|,/);
+
+    if (parts.length >= 3) {
+      const possiblePrice = cleanPrice(parts[parts.length - 1]);
+      
+      if (possiblePrice && possiblePrice > 100) {
+        let region = "";
+        let crop = "";
+
+        // Tambua Mkoa uliopo kwenye line
+        for (let r of validRegions) {
+          if (cleanedLine.toLowerCase().includes(r)) {
+            region = r.charAt(0).toUpperCase() + r.slice(1);
+            break;
+          }
+        }
+
+        if (region) {
+          crop = parts[0].toLowerCase(); // Zao (mfano: mahindi, mchele, maharagwe)
+          
+          // Ikiwa bei imewekwa kwa gunia (100kg), igawanye kwa 100 kupata /kg
+          const pricePerKg = possiblePrice > 5000 ? Number((possiblePrice / 100).toFixed(2)) : possiblePrice;
+
+          records.push({
+            zao: crop,
+            mkoa: region,
+            bei: pricePerKg,
+            unit: "TZS/kg",
+          });
+        }
+      }
+    }
+  }
 
   return records;
 }
 
-
-
+// 3. HIFADHI / UPDATE KWENYE DATABASE
 async function syncPricesToDatabase() {
   const today = new Date().toISOString().split("T")[0];
   const records = await fetchDailyPrices();
 
   if (records.length === 0) {
-    console.log("⚠️ Hakuna data mpya iliyopatikana leo.");
+    console.log("⚠️ Hakuna data mpya zilizoweza kusomwa kutoka kwenye PDF leo.");
     return { inserted: 0, updated: 0 };
   }
 
