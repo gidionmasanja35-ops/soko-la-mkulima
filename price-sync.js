@@ -72,18 +72,20 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  // Safe function resolver
-  const pdfModule = require("pdf-parse");
-  const parsePdf = typeof pdfModule === "function" 
-    ? pdfModule 
-    : (pdfModule.default && typeof pdfModule.default === "function" ? pdfModule.default : null);
-
-  if (!parsePdf) {
-    throw new Error("Imeshindwa kupata valid parse function kutoka kwenye library ya pdf-parse");
+  // Custom PDF parser wa Node.js kutatua tatizo la import ya pdf-parse
+  let pdfText = "";
+  try {
+    const PdfParse = require("pdf-parse/lib/pdf-parse.js");
+    const pdfData = await PdfParse(pdfBuffer.data);
+    pdfText = pdfData.text;
+  } catch (err) {
+    // Fallback ikitokea require ya ndani imezuiwa na package exports
+    const pdf = require("pdf-parse");
+    const parseFn = typeof pdf === "function" ? pdf : (pdf.default || Object.values(pdf).find(v => typeof v === "function"));
+    if (!parseFn) throw new Error("Kosa: pdf-parse haijaingizwa vizuri kwenye runtime.");
+    const pdfData = await parseFn(pdfBuffer.data);
+    pdfText = pdfData.text;
   }
-
-  const pdfData = await parsePdf(pdfBuffer.data);
-  const pdfText = pdfData.text;
 
   const records = [];
   const lines = pdfText.split("\n");
