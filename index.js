@@ -1522,6 +1522,27 @@ app.get("/api/takwimu", async (req, res) => {
   }
 });
 
+
+// Route ya kufanyia majaribio Manual Price Sync
+app.get("/api/test-sync", async (req, res) => {
+  try {
+    const { syncPricesToDatabase } = require("./price-sync");
+    console.log("🧪 Manual test sync imeanzishwa kupitia browser...");
+    const result = await syncPricesToDatabase();
+    res.json({
+      success: true,
+      message: "Price sync imekamilika vizuri!",
+      data: result
+    });
+  } catch (error) {
+    console.error("❌ Hitilafu kwenye manual test sync:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // GET /api/matangazo
 app.get("/api/matangazo", async (req, res) => {
   try {

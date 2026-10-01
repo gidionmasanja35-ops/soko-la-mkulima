@@ -64,6 +64,8 @@ async function fetchDailyPrices() {
   return records;
 }
 
+
+
 async function syncPricesToDatabase() {
   const today = new Date().toISOString().split("T")[0];
   const records = await fetchDailyPrices();
