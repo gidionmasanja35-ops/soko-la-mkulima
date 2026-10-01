@@ -72,9 +72,16 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  // Dynamic import ya pdf-parse kuondoa migogoro ya CommonJS/ESM
-  const pdfModule = await import("pdf-parse");
-  const parsePdf = pdfModule.default || pdfModule;
+  // Safe function resolver
+  const pdfModule = require("pdf-parse");
+  const parsePdf = typeof pdfModule === "function" 
+    ? pdfModule 
+    : (pdfModule.default && typeof pdfModule.default === "function" ? pdfModule.default : null);
+
+  if (!parsePdf) {
+    throw new Error("Imeshindwa kupata valid parse function kutoka kwenye library ya pdf-parse");
+  }
+
   const pdfData = await parsePdf(pdfBuffer.data);
   const pdfText = pdfData.text;
 
