@@ -6,7 +6,7 @@
 require("dotenv").config();
 const axios = require("axios");
 const cheerio = require("cheerio");
-const pdfParse = require("pdf-parse/lib/pdf-parse.js");
+const pdfParse = require("pdf-parse");
 const { Pool } = require("pg");
 
 const MIT_MARKET_URL = "https://www.viwanda.go.tz/documents/product-prices-domestic";
@@ -42,7 +42,6 @@ async function getLatestPdfUrl() {
   const $ = cheerio.load(response.data);
   let pdfUrl = "";
 
-  // Tafta link zote zinazoishia na .pdf au zilizomo kwenye downloads
   $("a").each((i, el) => {
     const href = $(el).attr("href");
     if (href && (href.toLowerCase().includes(".pdf") || href.toLowerCase().includes("download"))) {
@@ -73,20 +72,21 @@ async function fetchDailyPrices() {
   });
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
-  const pdfData = await pdfParse(pdfBuffer.data);
+  
+  // Kushughulikia import za CommonJS/ESM za pdf-parse kwa usalama
+  const parsePdf = typeof pdfParse === "function" ? pdfParse : pdfParse.default;
+  const pdfData = await parsePdf(pdfBuffer.data);
   const pdfText = pdfData.text;
 
   const records = [];
   const lines = pdfText.split("\n");
 
-  // Orodha ya mikoa ya Tanzania kwa ajili ya validation
   const validRegions = ["arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", "tabora", "tanga", "unguja"];
 
   for (let line of lines) {
     const cleanedLine = cleanText(line);
     if (!cleanedLine) continue;
 
-    // Mfano wa muundo: Mahindi Dar es Salaam 120,000 au Mahindi, Arusha, 90000
     const parts = cleanedLine.split(/\s+|\t+|,/);
 
     if (parts.length >= 3) {
@@ -96,7 +96,6 @@ async function fetchDailyPrices() {
         let region = "";
         let crop = "";
 
-        // Tambua Mkoa uliopo kwenye line
         for (let r of validRegions) {
           if (cleanedLine.toLowerCase().includes(r)) {
             region = r.charAt(0).toUpperCase() + r.slice(1);
@@ -105,9 +104,7 @@ async function fetchDailyPrices() {
         }
 
         if (region) {
-          crop = parts[0].toLowerCase(); // Zao (mfano: mahindi, mchele, maharagwe)
-          
-          // Ikiwa bei imewekwa kwa gunia (100kg), igawanye kwa 100 kupata /kg
+          crop = parts[0].toLowerCase();
           const pricePerKg = possiblePrice > 5000 ? Number((possiblePrice / 100).toFixed(2)) : possiblePrice;
 
           records.push({
