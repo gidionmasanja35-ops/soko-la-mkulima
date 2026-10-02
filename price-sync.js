@@ -18,15 +18,32 @@ const pool = new Pool({
   },
 });
 
+const VALID_REGIONS = [
+  "arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", 
+  "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", 
+  "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", 
+  "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", 
+  "tabora", "tanga", "unguja", "zanzibar"
+];
+
+// Orodha ya mazao makuu yanayopatikana kwenye ripoti za Wizara (Columns order/keywords)
+const DEFAULT_CROPS = [
+  "mahindi", "mpunga", "mchele", "maharage", "nyanya", 
+  "vitunguu", "viazi lishe", "viazi mringo", "kaloti", "ndizi"
+];
+
 function cleanText(value) {
   if (!value) return "";
-  return value.toString().replace(/\r?\n|\r/g, " ").replace(/\s+/g, " ").trim();
+  return decodeURIComponent(value)
+    .replace(/\r?\n|\r/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function cleanPrice(value) {
   if (!value) return null;
-  let text = cleanText(value).replace(/,/g, "").replace(/[^\d.]/g, "");
-  const number = Number(text);
+  const raw = cleanText(value).replace(/,/g, "").replace(/[^\d.]/g, "");
+  const number = Number(raw);
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
@@ -46,34 +63,31 @@ async function getLatestPdfUrl() {
     const href = $(el).attr("href");
     if (href && (href.toLowerCase().includes(".pdf") || href.toLowerCase().includes("download"))) {
       pdfUrl = href.startsWith("http") ? href : `https://www.viwanda.go.tz${href.startsWith("/") ? "" : "/"}${href}`;
-      return false; // Chukua ya kwanza kabisa (ya karibuni zaidi)
+      return false; // Chukua ya kwanza kabisa (ya hivi karibuni)
     }
   });
 
   return pdfUrl;
 }
 
-// Helper Function ya kusoma PDF kupitia pdf2json
-function extractTextFromPdfBuffer(pdfBuffer) {
+// Helper Function ya kusoma PDF Structured Page JSON kupitia pdf2json
+function parsePdfStructure(pdfBuffer) {
   return new Promise((resolve, reject) => {
-    const pdfParser = new PDFParser(this, 1); // 1 = text mode tu
+    const pdfParser = new PDFParser(this, 1);
 
     pdfParser.on("pdfParser_dataError", (errData) => reject(errData.parserError));
-    pdfParser.on("pdfParser_dataReady", () => {
-      const rawText = pdfParser.getRawTextContent();
-      resolve(rawText);
-    });
+    pdfParser.on("pdfParser_dataReady", (pdfData) => resolve(pdfData));
 
     pdfParser.parseBuffer(pdfBuffer);
   });
 }
 
-// 2. SOMA MAANDISHI YALIYOPO NDANI YA PDF NA CHUKUA MAZAO NA BEI
+// 2. SOMA MAANDISHI YALIYOPO NDANI YA PDF NA CHUKUA MAZAO NA BEI ZA MIKOA YOTE
 async function fetchDailyPrices() {
   const pdfUrl = await getLatestPdfUrl();
 
   if (!pdfUrl) {
-    console.log("⚠️ Hakuna link ya PDF iliyopatikana kwenye ukurasa wa Wizara.");
+    console.log("⚠️️ Hakuna link ya PDF iliyopatikana kwenye ukurasa wa Wizara.");
     return [];
   }
 
@@ -88,54 +102,63 @@ async function fetchDailyPrices() {
 
   console.log("📑 Inasoma na kuchanganua takwimu ndani ya PDF...");
   
-  const pdfText = await extractTextFromPdfBuffer(pdfBuffer.data);
-
-  // Print sample kidogo kwenye logs kuona mtindo wa majina/maandishi yaliyomo
-  console.log("--- SAMPULI YA PDF TEXT ---");
-  console.log(pdfText.substring(0, 400));
-  console.log("----------------------------");
-
+  const pdfData = await parsePdfStructure(pdfBuffer.data);
   const records = [];
-  const lines = pdfText.split("\n");
 
-  const validRegions = [
-    "arusha", "dar es salaam", "dodoma", "geita", "iringa", "kagera", 
-    "katavi", "kigoma", "kilimanjaro", "lindi", "manyara", "mara", 
-    "mbeya", "morogoro", "mtwara", "mwanza", "njombe", "pemba", 
-    "pwani", "rukwa", "ruvuma", "shinyanga", "simiyu", "singida", 
-    "tabora", "tanga", "unguja"
-  ];
+  for (const page of pdfData.Pages || []) {
+    // Kusanya maandishi yote na coordinates zao (y, x)
+    const texts = (page.Texts || []).map((t) => ({
+      x: t.x,
+      y: t.y,
+      text: cleanText(t.R?.[0]?.T || ""),
+    })).filter((t) => t.text.length > 0);
 
-  for (let line of lines) {
-    const cleanedLine = cleanText(line);
-    if (!cleanedLine) continue;
-
-    let matchedRegion = "";
-    for (let r of validRegions) {
-      if (cleanedLine.toLowerCase().includes(r)) {
-        matchedRegion = r.charAt(0).toUpperCase() + r.slice(1);
-        break;
+    // Kundi la maandishi yaliyo kwenye mstari mmoja wa Y (karibu na Y margin ya 0.4)
+    const lineGroups = [];
+    for (const t of texts) {
+      let group = lineGroups.find((g) => Math.abs(g.y - t.y) < 0.4);
+      if (!group) {
+        group = { y: t.y, items: [] };
+        lineGroups.push(group);
       }
+      group.items.push(t);
     }
 
-    if (matchedRegion) {
-      const numbersInLine = cleanedLine.match(/\d[\d,.]*/g);
-      if (numbersInLine && numbersInLine.length > 0) {
-        const rawPrice = numbersInLine[numbersInLine.length - 1];
-        const possiblePrice = cleanPrice(rawPrice);
+    // Panga mistari kuanzia juu kwenda chini na kushoto kwenda kulia
+    lineGroups.sort((a, b) => a.y - b.y);
 
-        if (possiblePrice && possiblePrice > 100) {
-          const words = cleanedLine.split(/\s+/);
-          const crop = words[0].toLowerCase();
-          const pricePerKg = possiblePrice > 5000 ? Number((possiblePrice / 100).toFixed(2)) : possiblePrice;
+    for (const group of lineGroups) {
+      group.items.sort((a, b) => a.x - b.x);
+      const fullLineText = group.items.map((i) => i.text).join(" ");
+      const lowerLineText = fullLineText.toLowerCase();
+
+      // Angalia kama mstari una mkoa ulioidhinishwa
+      const matchedRegionName = VALID_REGIONS.find((r) =>
+        new RegExp(`\\b${r}\\b`, "i").test(lowerLineText)
+      );
+
+      if (matchedRegionName) {
+        const regionFormatted =
+          matchedRegionName.charAt(0).toUpperCase() + matchedRegionName.slice(1);
+
+        // Kusanya namba zote za bei zilizopo kwenye mstari huu
+        const pricesInLine = group.items
+          .map((i) => cleanPrice(i.text))
+          .filter((p) => p !== null && p > 100);
+
+        // Mfano: Kama zimepatikana bei nyingi kwenye mstari wa mkoa, zipange kwa meza ya mazao
+        pricesInLine.forEach((price, idx) => {
+          const cropName = DEFAULT_CROPS[idx] || `zao_${idx + 1}`;
+          // Wizara huweka bei kwa Gunia (~100kg), tuiweke kwa TZS/kg
+          const pricePerKg = price > 5000 ? Number((price / 100).toFixed(2)) : price;
 
           records.push({
-            zao: crop,
-            mkoa: matchedRegion,
+            zao: cropName,
+            mkoa: regionFormatted,
             bei: pricePerKg,
             unit: "TZS/kg",
           });
-        }
+        });
       }
     }
   }
