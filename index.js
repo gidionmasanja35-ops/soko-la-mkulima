@@ -1711,13 +1711,38 @@ app.post("/api/bei", async (req, res) => {
 // GET /api/mazao
 app.get("/api/mazao", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT DISTINCT zao FROM matangazo WHERE active = TRUE ORDER BY zao",
+    // 1. Jaribu kupata mazao kutoka kwenye matangazo yaliyo active
+    const matangazoResult = await pool.query(
+      "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM matangazo WHERE active = TRUE AND zao IS NOT NULL ORDER BY zao"
     );
 
-    res.json(result.rows.map((r) => r.zao));
+    let mazaoList = matangazoResult.rows
+      .map((r) => r.zao)
+      .filter((zao) => zao && zao.trim().length > 0);
+
+    // 2. Kama hakuna matangazo au yako machache, chukua pia mazao kutoka bei_mazao
+    if (mazaoList.length === 0) {
+      const beiResult = await pool.query(
+        "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM bei_mazao WHERE zao IS NOT NULL ORDER BY zao"
+      );
+      mazaoList = beiResult.rows
+        .map((r) => r.zao)
+        .filter((zao) => zao && zao.trim().length > 0);
+    }
+
+    // Capitalize herufi ya kwanza ya kila zao kwa ajili ya Display nzuri kwenye Flutter UI
+    const formattedMazao = [...new Set(mazaoList)].map(
+      (zao) => zao.charAt(0).toUpperCase() + zao.slice(1)
+    );
+
+    res.json({
+      success: true,
+      data: formattedMazao,
+    });
   } catch (err) {
+    console.error("Error fetching mazao:", err);
     res.status(500).json({
+      success: false,
       error: err.message,
     });
   }
