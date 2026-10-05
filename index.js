@@ -355,150 +355,249 @@ app.post("/ussd", async (req, res) => {
       // HATUA YA 0: Menyu ya juu kabisa
       response = `CON Karibu Soko la Mkulima\n1. Angalia Bei za Zao\n2. Tangaza Mazao Yako\n3. Tazama Matangazo\n4. Jisajili\n5. Maombi ya Ununuzi\n6. Wasifu Wangu\n7. Hali ya Hewa`;
     } else if (majibu[0] === "1") {
-      // --- ANGALIA BEI ---
-      if (majibu.length === 1) {
-        const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
-        );
+  // ==========================================================
+  // ANGALIA BEI ZA MAZAO
+  // ==========================================================
 
-        const mazao = result.rows.map((r) => r.zao);
+  if (majibu.length === 1) {
+    // --------------------------------------------------------
+    // STEP 1: CHAGUA ZAO
+    // Tunachukua list ya mazao bila kurudia.
+    // --------------------------------------------------------
 
+    const result = await pool.query(`
+      SELECT zao
+      FROM (
+        SELECT DISTINCT ON (LOWER(TRIM(zao)))
+          zao,
+          data_date,
+          updated_at,
+          id
+        FROM bei_mazao
+        WHERE zao IS NOT NULL
+          AND TRIM(zao) <> ''
+          AND bei IS NOT NULL
+          AND bei > 0
+        ORDER BY
+          LOWER(TRIM(zao)),
+          data_date DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
+      ) latest
+      ORDER BY LOWER(TRIM(zao))
+    `);
+
+    const mazao = result.rows.map((r) => r.zao);
+
+    if (mazao.length === 0) {
+      response = "END Bei haipatikani kwa sasa.";
+    } else {
+      response =
+        "CON Chagua zao:\n" +
+        mazao
+          .map((z, i) => `${i + 1}. ${capitalize(z)}`)
+          .join("\n");
+    }
+
+  } else if (majibu.length === 2) {
+
+    // --------------------------------------------------------
+    // STEP 2: USER AMECHAGUA ZAO
+    // Onyesha mikoa yenye bei ya latest.
+    // --------------------------------------------------------
+
+    const result = await pool.query(`
+      SELECT zao
+      FROM (
+        SELECT DISTINCT ON (LOWER(TRIM(zao)))
+          zao,
+          data_date,
+          updated_at,
+          id
+        FROM bei_mazao
+        WHERE zao IS NOT NULL
+          AND TRIM(zao) <> ''
+          AND bei IS NOT NULL
+          AND bei > 0
+        ORDER BY
+          LOWER(TRIM(zao)),
+          data_date DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
+      ) latest
+      ORDER BY LOWER(TRIM(zao))
+    `);
+
+    const mazao = result.rows.map((r) => r.zao);
+
+    const index = parseInt(majibu[1], 10) - 1;
+    const zao = mazao[index];
+
+    if (!zao) {
+      response = "END Chaguo si sahihi. Jaribu tena.";
+    } else {
+
+      const mikoaResult = await pool.query(
+        `
+        SELECT mkoa
+        FROM (
+          SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
+            mkoa,
+            data_date,
+            updated_at,
+            id
+          FROM bei_mazao
+          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+            AND mkoa IS NOT NULL
+            AND TRIM(mkoa) <> ''
+            AND bei IS NOT NULL
+            AND bei > 0
+          ORDER BY
+            LOWER(TRIM(mkoa)),
+            data_date DESC NULLS LAST,
+            updated_at DESC NULLS LAST,
+            id DESC
+        ) latest
+        ORDER BY LOWER(TRIM(mkoa))
+        `,
+        [zao]
+      );
+
+      const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+
+      if (mikoa.length === 0) {
+        response = `END Bei za ${capitalize(zao)} hazipatikani kwa sasa.`;
+      } else {
         response =
-          "CON Chagua zao:\n" +
-          mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
-      } else if (majibu.length === 2) {
-        const result = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
+          "CON Chagua mkoa:\n" +
+          mikoa
+            .map((m, i) => `${i + 1}. ${m}`)
+            .join("\n");
+      }
+    }
+  }
+
+  } else if (majibu.length === 3) {
+
+    // --------------------------------------------------------
+    // STEP 3: USER AMECHAGUA ZAO + MKOA
+    // Leta bei ya LATEST kwa zao + mkoa.
+    // --------------------------------------------------------
+
+    const zaoResult = await pool.query(`
+      SELECT zao
+      FROM (
+        SELECT DISTINCT ON (LOWER(TRIM(zao)))
+          zao,
+          data_date,
+          updated_at,
+          id
+        FROM bei_mazao
+        WHERE zao IS NOT NULL
+          AND TRIM(zao) <> ''
+          AND bei IS NOT NULL
+          AND bei > 0
+        ORDER BY
+          LOWER(TRIM(zao)),
+          data_date DESC NULLS LAST,
+          updated_at DESC NULLS LAST,
+          id DESC
+      ) latest
+      ORDER BY LOWER(TRIM(zao))
+    `);
+
+    const mazao = zaoResult.rows.map((r) => r.zao);
+
+    const zaoIndex = parseInt(majibu[1], 10) - 1;
+    const zao = mazao[zaoIndex];
+
+    if (!zao) {
+      response = "END Chaguo la zao si sahihi. Jaribu tena.";
+    } else {
+
+      const mikoaResult = await pool.query(
+        `
+        SELECT mkoa
+        FROM (
+          SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
+            mkoa,
+            data_date,
+            updated_at,
+            id
+          FROM bei_mazao
+          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+            AND mkoa IS NOT NULL
+            AND TRIM(mkoa) <> ''
+            AND bei IS NOT NULL
+            AND bei > 0
+          ORDER BY
+            LOWER(TRIM(mkoa)),
+            data_date DESC NULLS LAST,
+            updated_at DESC NULLS LAST,
+            id DESC
+        ) latest
+        ORDER BY LOWER(TRIM(mkoa))
+        `,
+        [zao]
+      );
+
+      const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+
+      const mkoaIndex = parseInt(majibu[2], 10) - 1;
+      const mkoa = mikoa[mkoaIndex];
+
+      if (!mkoa) {
+        response = "END Chaguo la mkoa si sahihi. Jaribu tena.";
+      } else {
+
+        // ----------------------------------------------------
+        // MUHIMU:
+        // Chukua row MOJA tu ya latest kwa zao + mkoa.
+        // History yote inabaki DB.
+        // ----------------------------------------------------
+
+        const priceResult = await pool.query(
+          `
+          SELECT
+            zao,
+            mkoa,
+            bei,
+            unit,
+            source,
+            data_date,
+            updated_at
+          FROM bei_mazao
+          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+            AND LOWER(TRIM(mkoa)) = LOWER(TRIM($2))
+            AND bei IS NOT NULL
+            AND bei > 0
+          ORDER BY
+            data_date DESC NULLS LAST,
+            updated_at DESC NULLS LAST,
+            id DESC
+          LIMIT 1
+          `,
+          [zao, mkoa]
         );
 
-        const mazao = result.rows.map((r) => r.zao);
-        const zao = mazao[parseInt(majibu[1]) - 1];
+        const price = priceResult.rows[0];
 
-        if (!zao) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
+        if (!price) {
+          response =
+            `END Bei ya ${capitalize(zao)} ` +
+            `mkoa wa ${mkoa} haipatikani kwa sasa.`;
         } else {
-          const mikoaResult = await pool.query(
-            "SELECT mkoa FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
-            [zao],
-          );
 
-          const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+          const unit = price.unit || "kg";
 
           response =
-            "CON Chagua mkoa:\n" +
-            mikoa.map((m, i) => `${i + 1}. ${m}`).join("\n");
-        }
-      } else if (majibu.length === 3) {
-        const zaoResult = await pool.query(
-          "SELECT DISTINCT zao FROM bei_mazao ORDER BY zao",
-        );
-
-        const mazao = zaoResult.rows.map((r) => r.zao);
-        const zao = mazao[parseInt(majibu[1]) - 1];
-
-        const mikoaResult = await pool.query(
-          "SELECT mkoa, bei FROM bei_mazao WHERE zao = $1 ORDER BY mkoa",
-          [zao],
-        );
-
-        const chaguo = mikoaResult.rows[parseInt(majibu[2]) - 1];
-
-        if (!chaguo) {
-          response = "END Chaguo si sahihi. Jaribu tena.";
-        } else {
-          response = `END Bei ya ${zao} mkoa wa ${chaguo.mkoa} ni TZS ${chaguo.bei} kwa kilo.`;
+            `END Bei ya ${capitalize(price.zao)} ` +
+            `mkoa wa ${price.mkoa} ni ` +
+            `TZS ${Number(price.bei).toLocaleString()} kwa ${unit}.`;
         }
       }
-    } else if (majibu[0] === "2") {
-      // --- TANGAZA MAZAO ---
-
-      if (majibu.length === 1) {
-        response = "CON Andika jina la zao unalouza:";
-      } else if (majibu.length === 2) {
-        response = "CON Andika idadi ya magunia:";
-      } else if (majibu.length === 3) {
-        response = "CON Weka bei kwa gunia (TZS):";
-      } else if (majibu.length === 4) {
-        response = "CON Andika mkoa uliopo sasa (mfano: Dodoma):";
-      } else if (majibu.length === 5) {
-        const zao = majibu[1];
-        const idadi = majibu[2];
-        const bei = majibu[3];
-        const mkoa = majibu[4];
-
-        response =
-          `CON Thibitisha Tangazo Lako:\n` +
-          `Zao: ${capitalize(zao)}\n` +
-          `Idadi: ${idadi} magunia\n` +
-          `Bei: TZS ${bei}/gunia\n` +
-          `Mkoa: ${mkoa}\n\n` +
-          `1. Kubali na Chapisha\n` +
-          `2. Ghairi Tangazo`;
-      } else if (majibu.length === 6) {
-        const zao = majibu[1].toLowerCase().trim();
-        const idadi = majibu[2].trim();
-        const bei = majibu[3].trim();
-        const mkoa = majibu[4].trim();
-        const thibitisho = majibu[5].trim();
-
-        let HaliYaTangazo = "pending";
-
-        if (thibitisho === "1") {
-          HaliYaTangazo = "accepted";
-
-          response =
-            `END Asante! Tangazo lako la ${capitalize(zao)} ` +
-            `(magunia ${idadi} @ TZS ${bei}) limekubaliwa ` +
-            `na kuwekwa sokoni kikamilifu.`;
-
-          await tumaSMS(
-            phoneNumber,
-            `Tangazo lako la ${capitalize(zao)}\n${idadi} magunia @ TZS ${bei} limechapishwa Sokoni rasmi.`,
-          );
-        } else if (thibitisho === "2") {
-          HaliYaTangazo = "rejected";
-
-          response =
-            "END Tangazo lako limeghairiwa na halitaonekana kwa wanunuzi.";
-        } else {
-          response = "END Chaguo si sahihi. Tangazo limefutwa.";
-
-          res.set("Content-Type", "text/plain");
-
-          return res.send(response);
-        }
-
-        const beiSafi = parseInt(bei.replace(/[^0-9]/g, ""), 10) || 0;
-
-        const zaoSafi = zao.toLowerCase().trim();
-
-        const mkoaSafi = mkoa.trim();
-
-        const idadiSafi = idadi.trim();
-
-        await pool.query(
-          "INSERT INTO matangazo (zao, idadi, bei, phone_number, mkoa, status, active) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-          [
-            zaoSafi,
-            idadiSafi,
-            beiSafi,
-            phoneNumber,
-            mkoaSafi,
-            HaliYaTangazo,
-            HaliYaTangazo === "accepted",
-          ],
-        );
-
-        if (HaliYaTangazo === "accepted") {
-          await tumaNotificationKwaWanunuzi({
-            zao: zaoSafi,
-            idadi: idadiSafi,
-            bei: beiSafi,
-            mkoa: mkoaSafi,
-          });
-        }
-      }
-    } else if (majibu[0] === "3") {
+    }
+  } else if (majibu[0] === "3") {
       // --- TAZAMA MATANGAZO ---
 
       const result = await pool.query(
@@ -1663,48 +1762,221 @@ app.get("/api/mkulima/:simu", async (req, res) => {
   }
 });
 
+// ============================================================
 // GET /api/bei
+// ============================================================
+//
+// DB inahifadhi HISTORY yote.
+// API inarudisha LATEST price moja kwa kila:
+//     zao + mkoa
+//
+// ============================================================
+
 app.get("/api/bei", async (req, res) => {
   try {
-    const result = await pool.query(
-      "SELECT * FROM bei_mazao ORDER BY zao, mkoa",
-    );
+
+    const result = await pool.query(`
+      SELECT DISTINCT ON (
+        LOWER(TRIM(zao)),
+        LOWER(TRIM(mkoa))
+      )
+        id,
+        zao,
+        mkoa,
+        bei,
+        unit,
+        source,
+        source_url,
+        data_date,
+        tarehe,
+        updated_at
+
+      FROM bei_mazao
+
+      WHERE zao IS NOT NULL
+        AND TRIM(zao) <> ''
+
+        AND mkoa IS NOT NULL
+        AND TRIM(mkoa) <> ''
+
+        AND bei IS NOT NULL
+        AND bei > 0
+
+      ORDER BY
+        LOWER(TRIM(zao)),
+        LOWER(TRIM(mkoa)),
+
+        -- latest report first
+        data_date DESC NULLS LAST,
+
+        -- if same report date,
+        -- latest update wins
+        updated_at DESC NULLS LAST,
+
+        -- final deterministic tie breaker
+        id DESC
+    `);
 
     res.json(result.rows);
+
   } catch (err) {
+
+    console.error(
+      "Error kwenye GET /api/bei:",
+      err.message
+    );
+
     res.status(500).json({
-      error: err.message,
+      error: "Imeshindikana kupata bei za mazao.",
+      details: err.message,
     });
   }
 });
 
-// POST /api/bei (Sehemu ya kuweka au kusasisha bei ikiwemo source_url)
+
+// ============================================================
+// POST /api/bei
+// ============================================================
+//
+// Manual/Admin price.
+// Ina-save history kulingana na:
+//
+// source + zao + mkoa + data_date
+//
+// ============================================================
+
 app.post("/api/bei", async (req, res) => {
+
   try {
-    const { zao, bei, mkoa, tarehe, source_url } = req.body;
+
+    const {
+      zao,
+      bei,
+      mkoa,
+      tarehe,
+      source_url,
+    } = req.body;
+
+    // --------------------------------------------------------
+    // VALIDATION
+    // --------------------------------------------------------
+
+    if (
+      !zao ||
+      !mkoa ||
+      bei === undefined ||
+      bei === null ||
+      Number(bei) <= 0
+    ) {
+      return res.status(400).json({
+        error: "zao, bei na mkoa vinahitajika.",
+      });
+    }
+
+    // --------------------------------------------------------
+    // CLEAN DATA
+    // --------------------------------------------------------
+
+    const crop =
+      zao
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    const region =
+      mkoa
+        .toString()
+        .trim();
+
+    const price =
+      Number(bei);
+
+    const reportDate =
+      tarehe || new Date();
+
+    // --------------------------------------------------------
+    // SAVE
+    // --------------------------------------------------------
 
     const query = `
-      INSERT INTO bei_mazao (zao, bei, mkoa, tarehe, source_url)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (zao, mkoa, tarehe)
+      INSERT INTO bei_mazao
+      (
+        zao,
+        bei,
+        mkoa,
+        tarehe,
+        unit,
+        source,
+        source_url,
+        data_date,
+        updated_at
+      )
+
+      VALUES
+      (
+        $1,
+        $2,
+        $3,
+        $4,
+        'kg',
+        'Manual/Admin',
+        $5,
+        $4::date,
+        NOW()
+      )
+
+      ON CONFLICT
+      (
+        source,
+        zao,
+        mkoa,
+        data_date
+      )
+
       DO UPDATE SET
-        bei = EXCLUDED.bei,
-        source_url = EXCLUDED.source_url,
-        updated_at = NOW();
+
+        bei =
+          EXCLUDED.bei,
+
+        tarehe =
+          EXCLUDED.tarehe,
+
+        unit =
+          EXCLUDED.unit,
+
+        source_url =
+          EXCLUDED.source_url,
+
+        updated_at =
+          NOW()
     `;
 
-    await pool.query(query, [
-      zao.toLowerCase().trim(),
-      bei,
-      mkoa.trim(),
-      tarehe || new Date(),
-      source_url || null,
-    ]);
+    await pool.query(
+      query,
+      [
+        crop,
+        price,
+        region,
+        reportDate,
+        source_url || null,
+      ]
+    );
 
-    res.json({ success: true, message: "Bei imesasishwa kikamilifu!" });
+    res.json({
+      success: true,
+      message: "Bei imesasishwa kikamilifu!",
+    });
+
   } catch (err) {
-    console.error("Error kwenye /api/bei POST:", err.message);
-    res.status(500).json({ error: err.message });
+
+    console.error(
+      "Error kwenye /api/bei POST:",
+      err.message
+    );
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 });
 
