@@ -15,12 +15,7 @@ const MASTER_CROPS = [
     id: "mahindi",
     name: "mahindi",
     category: "Nafaka",
-    aliases: [
-      "maize",
-      "corn",
-      "maize grain",
-      "corn grain",
-    ],
+    aliases: ["maize", "corn", "maize grain", "corn grain"],
   },
 
   {
@@ -41,22 +36,14 @@ const MASTER_CROPS = [
     id: "mchele",
     name: "mchele",
     category: "Nafaka",
-    aliases: [
-      "rice",
-      "milled rice",
-      "rice grain",
-      "white rice",
-    ],
+    aliases: ["rice", "milled rice", "rice grain", "white rice"],
   },
 
   {
     id: "mtama",
     name: "mtama",
     category: "Nafaka",
-    aliases: [
-      "sorghum",
-      "sorghum grain",
-    ],
+    aliases: ["sorghum", "sorghum grain"],
   },
 
   {
@@ -79,22 +66,15 @@ const MASTER_CROPS = [
     id: "ulezi",
     name: "ulezi",
     category: "Nafaka",
-    aliases: [
-      "finger millet",
-      "finger-millet",
-    ],
+    aliases: ["finger millet", "finger-millet"],
   },
 
   {
     id: "ngano",
     name: "ngano",
     category: "Nafaka",
-    aliases: [
-      "wheat",
-      "wheat grain",
-    ],
+    aliases: ["wheat", "wheat grain"],
   },
-
 
   // ============================================================
   // KUNDE (LEGUMES)
@@ -104,13 +84,7 @@ const MASTER_CROPS = [
     id: "maharage",
     name: "maharage",
     category: "Kunde",
-    aliases: [
-      "beans",
-      "bean",
-      "common beans",
-      "dry beans",
-      "dry bean",
-    ],
+    aliases: ["beans", "bean", "common beans", "dry beans", "dry bean"],
   },
 
   {
@@ -130,24 +104,14 @@ const MASTER_CROPS = [
     id: "choroko",
     name: "choroko",
     category: "Kunde",
-    aliases: [
-      "green gram",
-      "green grams",
-      "mung beans",
-      "mung bean",
-      "moong",
-    ],
+    aliases: ["green gram", "green grams", "mung beans", "mung bean", "moong"],
   },
 
   {
     id: "mbaazi",
     name: "mbaazi",
     category: "Kunde",
-    aliases: [
-      "pigeon peas",
-      "pigeon pea",
-      "cajanus",
-    ],
+    aliases: ["pigeon peas", "pigeon pea", "cajanus"],
   },
 
   {
@@ -166,26 +130,15 @@ const MASTER_CROPS = [
     id: "soya",
     name: "soya",
     category: "Kunde",
-    aliases: [
-      "soy",
-      "soybean",
-      "soybeans",
-      "soya bean",
-      "soya beans",
-    ],
+    aliases: ["soy", "soybean", "soybeans", "soya bean", "soya beans"],
   },
 
   {
     id: "dengu",
     name: "dengu",
     category: "Kunde",
-    aliases: [
-      "lentils",
-      "lentil",
-      "green lentils",
-    ],
+    aliases: ["lentils", "lentil", "green lentils"],
   },
-
 
   // ============================================================
   // MIZIZI NA MICHENZA
@@ -195,21 +148,14 @@ const MASTER_CROPS = [
     id: "mhogo",
     name: "mhogo",
     category: "Mizizi na Michenza",
-    aliases: [
-      "cassava",
-      "cassava root",
-      "cassava roots",
-    ],
+    aliases: ["cassava", "cassava root", "cassava roots"],
   },
 
   {
     id: "viazi vitamu",
     name: "viazi vitamu",
     category: "Mizizi na Michenza",
-    aliases: [
-      "sweet potatoes",
-      "sweet potato",
-    ],
+    aliases: ["sweet potatoes", "sweet potato"],
   },
 
   {
@@ -221,13 +167,12 @@ const MASTER_CROPS = [
       "potato",
       "irish potatoes",
       "irish potato",
-      "irish potatoes",
       "round potatoes",
       "round potato",
-      "round potatoes",
+      "viazi mviringo",
+      "viazi",
     ],
   },
-
 
   // ============================================================
   // MAFUTA NA BIASHARA
@@ -237,70 +182,43 @@ const MASTER_CROPS = [
     id: "ufuta",
     name: "ufuta",
     category: "Mafuta",
-    aliases: [
-      "sesame",
-      "sesame seeds",
-      "sesame seed",
-    ],
+    aliases: ["sesame", "sesame seeds", "sesame seed"],
   },
 
   {
     id: "karanga",
     name: "karanga",
     category: "Mafuta",
-    aliases: [
-      "groundnuts",
-      "groundnut",
-      "peanuts",
-      "peanut",
-    ],
+    aliases: ["groundnuts", "groundnut", "peanuts", "peanut"],
   },
 
   {
     id: "alizeti",
     name: "alizeti",
     category: "Mafuta",
-    aliases: [
-      "sunflower",
-      "sunflower seed",
-      "sunflower seeds",
-    ],
+    aliases: ["sunflower", "sunflower seed", "sunflower seeds"],
   },
 
   {
     id: "michikichi",
     name: "michikichi",
     category: "Mafuta",
-    aliases: [
-      "palm",
-      "palm oil",
-      "palm nuts",
-      "palm kernel",
-    ],
+    aliases: ["palm", "palm oil", "palm nuts", "palm kernel"],
   },
 
   {
     id: "nazi",
     name: "nazi",
     category: "Mafuta",
-    aliases: [
-      "coconut",
-      "coconuts",
-      "coconut fruit",
-    ],
+    aliases: ["coconut", "coconuts", "coconut fruit"],
   },
 
   {
     id: "pamba",
     name: "pamba",
     category: "Mafuta",
-    aliases: [
-      "cotton",
-      "cotton seed",
-      "cotton seeds",
-    ],
+    aliases: ["cotton", "cotton seed", "cotton seeds"],
   },
-
 
   // ============================================================
   // MBOGA (VEGETABLES)
@@ -310,10 +228,7 @@ const MASTER_CROPS = [
     id: "nyanya",
     name: "nyanya",
     category: "Mboga",
-    aliases: [
-      "tomatoes",
-      "tomato",
-    ],
+    aliases: ["tomatoes", "tomato"],
   },
 
   {
@@ -325,6 +240,8 @@ const MASTER_CROPS = [
       "onion",
       "bulb onions",
       "bulb onion",
+      "vitunguu",
+      "vitunguu maji",
     ],
   },
 
@@ -332,42 +249,28 @@ const MASTER_CROPS = [
     id: "sukuma wiki",
     name: "sukuma wiki",
     category: "Mboga",
-    aliases: [
-      "kale",
-      "collard greens",
-    ],
+    aliases: ["kale", "collard greens"],
   },
 
   {
     id: "kabichi",
     name: "kabichi",
     category: "Mboga",
-    aliases: [
-      "cabbage",
-      "cabbages",
-    ],
+    aliases: ["cabbage", "cabbages"],
   },
 
   {
     id: "bamia",
     name: "bamia",
     category: "Mboga",
-    aliases: [
-      "okra",
-      "lady fingers",
-      "ladyfinger",
-    ],
+    aliases: ["okra", "lady fingers", "ladyfinger"],
   },
 
   {
     id: "mchicha",
     name: "mchicha",
     category: "Mboga",
-    aliases: [
-      "amaranth",
-      "spinach",
-      "amaranth leaves",
-    ],
+    aliases: ["amaranth", "spinach", "amaranth leaves"],
   },
 
   {
@@ -401,56 +304,36 @@ const MASTER_CROPS = [
     id: "karoti",
     name: "karoti",
     category: "Mboga",
-    aliases: [
-      "carrots",
-      "carrot",
-    ],
+    aliases: ["carrots", "carrot", "kaloti", "karoti"],
   },
 
   {
     id: "bilinganya",
     name: "bilinganya",
     category: "Mboga",
-    aliases: [
-      "eggplant",
-      "eggplants",
-      "aubergine",
-      "aubergines",
-    ],
+    aliases: ["eggplant", "eggplants", "aubergine", "aubergines"],
   },
 
   {
     id: "tango",
     name: "tango",
     category: "Mboga",
-    aliases: [
-      "cucumber",
-      "cucumbers",
-    ],
+    aliases: ["cucumber", "cucumbers"],
   },
 
   {
     id: "boga",
     name: "boga",
     category: "Mboga",
-    aliases: [
-      "pumpkin",
-      "pumpkins",
-      "squash",
-    ],
+    aliases: ["pumpkin", "pumpkins", "squash"],
   },
 
   {
     id: "kitunguu saumu",
     name: "kitunguu saumu",
     category: "Mboga",
-    aliases: [
-      "garlic",
-      "garlic bulb",
-      "garlic bulbs",
-    ],
+    aliases: ["garlic", "garlic bulb", "garlic bulbs"],
   },
-
 
   // ============================================================
   // MATUNDA (FRUITS)
@@ -460,182 +343,121 @@ const MASTER_CROPS = [
     id: "parachichi",
     name: "parachichi",
     category: "Matunda",
-    aliases: [
-      "avocado",
-      "avocados",
-    ],
+    aliases: ["avocado", "avocados"],
   },
 
   {
     id: "ndizi",
     name: "ndizi",
     category: "Matunda",
-    aliases: [
-      "banana",
-      "bananas",
-    ],
+    aliases: ["banana", "bananas"],
   },
 
   {
     id: "embe",
     name: "embe",
     category: "Matunda",
-    aliases: [
-      "mango",
-      "mangoes",
-    ],
+    aliases: ["mango", "mangoes"],
   },
 
   {
     id: "machungwa",
     name: "machungwa",
     category: "Matunda",
-    aliases: [
-      "orange",
-      "oranges",
-    ],
+    aliases: ["orange", "oranges"],
   },
 
   {
     id: "papai",
     name: "papai",
     category: "Matunda",
-    aliases: [
-      "papaya",
-      "papayas",
-    ],
+    aliases: ["papaya", "papayas"],
   },
 
   {
     id: "nanasi",
     name: "nanasi",
     category: "Matunda",
-    aliases: [
-      "pineapple",
-      "pineapples",
-    ],
+    aliases: ["pineapple", "pineapples"],
   },
 
   {
     id: "pesheni",
     name: "pesheni",
     category: "Matunda",
-    aliases: [
-      "passion",
-      "passion fruit",
-      "passion fruits",
-      "passionfruit",
-    ],
+    aliases: ["passion", "passion fruit", "passion fruits", "passionfruit"],
   },
 
   {
     id: "pera",
     name: "pera",
     category: "Matunda",
-    aliases: [
-      "guava",
-      "guavas",
-    ],
+    aliases: ["guava", "guavas"],
   },
 
   {
     id: "fenesi",
     name: "fenesi",
     category: "Matunda",
-    aliases: [
-      "jackfruit",
-      "jack fruit",
-    ],
+    aliases: ["jackfruit", "jack fruit"],
   },
 
   {
     id: "limau",
     name: "limau",
     category: "Matunda",
-    aliases: [
-      "lemon",
-      "lemons",
-    ],
+    aliases: ["lemon", "lemons"],
   },
 
   {
     id: "zabibu",
     name: "zabibu",
     category: "Matunda",
-    aliases: [
-      "grape",
-      "grapes",
-    ],
+    aliases: ["grape", "grapes"],
   },
 
   {
     id: "tikiti maji",
     name: "tikiti maji",
     category: "Matunda",
-    aliases: [
-      "watermelon",
-      "watermelons",
-    ],
+    aliases: ["watermelon", "watermelons"],
   },
 
   {
     id: "stafeli",
     name: "stafeli",
     category: "Matunda",
-    aliases: [
-      "soursop",
-      "soursops",
-      "graviola",
-    ],
+    aliases: ["soursop", "soursops", "graviola"],
   },
 
   {
     id: "korosho",
     name: "korosho",
     category: "Matunda",
-    aliases: [
-      "cashew",
-      "cashews",
-      "cashew nuts",
-      "cashew nut",
-    ],
+    aliases: ["cashew", "cashews", "cashew nuts", "cashew nut"],
   },
 
   {
     id: "kahawa",
     name: "kahawa",
     category: "Matunda",
-    aliases: [
-      "coffee",
-      "coffee beans",
-      "coffee bean",
-    ],
+    aliases: ["coffee", "coffee beans", "coffee bean"],
   },
 
   {
     id: "chenza",
     name: "chenza",
     category: "Matunda",
-    aliases: [
-      "tangerine",
-      "tangerines",
-      "mandarin",
-      "mandarins",
-    ],
+    aliases: ["tangerine", "tangerines", "mandarin", "mandarins"],
   },
 
   {
     id: "zambarau",
     name: "zambarau",
     category: "Matunda",
-    aliases: [
-      "plum",
-      "plums",
-      "purple plum",
-    ],
+    aliases: ["plum", "plums", "purple plum"],
   },
 ];
-
 
 // ============================================================
 // NORMALIZATION
@@ -654,7 +476,6 @@ function normalizeCropText(value) {
     .replace(/\s*\/\s*/g, " / ")
     .trim();
 }
-
 
 // ============================================================
 // INVALID / GARBAGE CROP DETECTION
@@ -706,7 +527,6 @@ const INVALID_CROP_VALUES = new Set([
   "undefined",
 ]);
 
-
 // Tanzania regions ambazo parser haipaswi kuziweka kama crop.
 
 const TANZANIA_REGIONS = new Set([
@@ -740,7 +560,6 @@ const TANZANIA_REGIONS = new Set([
   "unguja",
   "pemba",
 ]);
-
 
 // ============================================================
 // VALIDATE SOURCE CROP NAME
@@ -806,7 +625,6 @@ function isInvalidCropName(value) {
   return false;
 }
 
-
 // ============================================================
 // GET ALL MASTER CROPS
 // ============================================================
@@ -814,7 +632,6 @@ function isInvalidCropName(value) {
 function getMasterCrops() {
   return MASTER_CROPS;
 }
-
 
 // ============================================================
 // FIND CROP BY EXACT ID
@@ -830,12 +647,10 @@ function getCropById(id) {
   }
 
   return (
-    MASTER_CROPS.find(
-      (crop) => normalizeCropText(crop.id) === normalized
-    ) || null
+    MASTER_CROPS.find((crop) => normalizeCropText(crop.id) === normalized) ||
+    null
   );
 }
-
 
 // ============================================================
 // FIND CROP BY ID OR ALIAS
@@ -866,7 +681,7 @@ function getCropByNameOrAlias(value) {
 
   // First try exact ID.
   const byId = MASTER_CROPS.find(
-    (crop) => normalizeCropText(crop.id) === normalized
+    (crop) => normalizeCropText(crop.id) === normalized,
   );
 
   if (byId) {
@@ -875,7 +690,7 @@ function getCropByNameOrAlias(value) {
 
   // Then try crop name.
   const byName = MASTER_CROPS.find(
-    (crop) => normalizeCropText(crop.name) === normalized
+    (crop) => normalizeCropText(crop.name) === normalized,
   );
 
   if (byName) {
@@ -883,16 +698,14 @@ function getCropByNameOrAlias(value) {
   }
 
   // Finally try aliases.
-  const byAlias = MASTER_CROPS.find((crop) =>
-    Array.isArray(crop.aliases) &&
-    crop.aliases.some(
-      (alias) => normalizeCropText(alias) === normalized
-    )
+  const byAlias = MASTER_CROPS.find(
+    (crop) =>
+      Array.isArray(crop.aliases) &&
+      crop.aliases.some((alias) => normalizeCropText(alias) === normalized),
   );
 
   return byAlias || null;
 }
-
 
 // ============================================================
 // GET CANONICAL CROP ID
@@ -917,7 +730,6 @@ function getCanonicalCropId(value) {
   return crop.id;
 }
 
-
 // ============================================================
 // GET ALL CROP IDs
 // ============================================================
@@ -925,7 +737,6 @@ function getCanonicalCropId(value) {
 function getCropIds() {
   return MASTER_CROPS.map((crop) => crop.id);
 }
-
 
 // ============================================================
 // GET CROPS BY CATEGORY
@@ -937,10 +748,9 @@ function getCropsByCategory(category) {
   const normalized = normalizeCropText(category);
 
   return MASTER_CROPS.filter(
-    (crop) => normalizeCropText(crop.category) === normalized
+    (crop) => normalizeCropText(crop.category) === normalized,
   );
 }
-
 
 // ============================================================
 // GET ALIASES FOR A SPECIFIC CROP
@@ -953,12 +763,8 @@ function getCropAliases(id) {
     return [];
   }
 
-  return [
-    crop.name,
-    ...crop.aliases,
-  ];
+  return [crop.name, ...crop.aliases];
 }
-
 
 // ============================================================
 // EXPORT
