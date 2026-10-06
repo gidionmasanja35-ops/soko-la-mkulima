@@ -5,14 +5,19 @@ const { fetchTantradePrices } = require("./tantrade");
 const { fetchMitPrices } = require("./mit");
 const { fetchMoaPrices } = require("./moa");
 
-const { getMasterCrops, getCropById } = require("./master-crops");
+const {
+  getMasterCrops,
+  getCropById,
+  getCropByNameOrAlias,
+  isInvalidCropName,
+} = require("./master-crops");
 
 const {
   normalizeUnit,
   canConvertToKg,
-  convertToKg,
   convertPrice,
 } = require("./unit-converter");
+
 
 // ============================================================
 // CONFIGURATION
@@ -20,15 +25,20 @@ const {
 
 const DEFAULT_SOURCE_PRIORITY = ["MOA", "TanTrade", "MIT", "RATIN"];
 
-const SOURCE_MAX_AGE_DAYS = Number(process.env.PRICE_MAX_AGE_DAYS || 30);
+const SOURCE_MAX_AGE_DAYS = Number(
+  process.env.PRICE_MAX_AGE_DAYS || 30
+);
 
 const REQUIRE_KNOWN_UNIT =
-  String(process.env.PRICE_REQUIRE_KNOWN_UNIT || "true").toLowerCase() ===
-  "true";
+  String(
+    process.env.PRICE_REQUIRE_KNOWN_UNIT || "true"
+  ).toLowerCase() === "true";
 
 const ALLOW_STALE_DATA =
-  String(process.env.PRICE_ALLOW_STALE_DATA || "false").toLowerCase() ===
-  "true";
+  String(
+    process.env.PRICE_ALLOW_STALE_DATA || "false"
+  ).toLowerCase() === "true";
+
 
 // ============================================================
 // HELPERS
@@ -42,12 +52,16 @@ function cleanString(value) {
   return String(value).trim();
 }
 
+
 function normalizeSourceName(source) {
   return cleanString(source).toLowerCase();
 }
 
+
 function getSourcePriority() {
-  const configured = cleanString(process.env.PRICE_SOURCE_PRIORITY);
+  const configured = cleanString(
+    process.env.PRICE_SOURCE_PRIORITY
+  );
 
   if (!configured) {
     return DEFAULT_SOURCE_PRIORITY;
@@ -58,14 +72,19 @@ function getSourcePriority() {
     .map((item) => item.trim())
     .filter(Boolean);
 
-  return values.length ? values : DEFAULT_SOURCE_PRIORITY;
+  return values.length
+    ? values
+    : DEFAULT_SOURCE_PRIORITY;
 }
+
 
 function getPriorityScore(source) {
   const priority = getSourcePriority();
 
   const index = priority.findIndex(
-    (item) => normalizeSourceName(item) === normalizeSourceName(source),
+    (item) =>
+      normalizeSourceName(item) ===
+      normalizeSourceName(source)
   );
 
   if (index === -1) {
@@ -74,6 +93,7 @@ function getPriorityScore(source) {
 
   return index;
 }
+
 
 function parseDate(value) {
   if (!value) {
@@ -89,6 +109,7 @@ function parseDate(value) {
   return date;
 }
 
+
 function daysSince(dateValue) {
   const date = parseDate(dateValue);
 
@@ -98,10 +119,14 @@ function daysSince(dateValue) {
 
   const now = new Date();
 
-  const diff = now.getTime() - date.getTime();
+  const diff =
+    now.getTime() -
+    date.getTime();
 
-  return diff / (1000 * 60 * 60 * 24);
+  return diff /
+    (1000 * 60 * 60 * 24);
 }
+
 
 function isFresh(record) {
   if (!record.dataDate) {
@@ -113,6 +138,45 @@ function isFresh(record) {
   return age <= SOURCE_MAX_AGE_DAYS;
 }
 
+
+// ============================================================
+// CROP NORMALIZATION
+// ============================================================
+
+function resolveCrop(value) {
+  const raw = cleanString(value);
+
+  if (!raw) {
+    return null;
+  }
+
+  // First reject obvious parser garbage.
+  if (typeof isInvalidCropName === "function") {
+    if (isInvalidCropName(raw)) {
+      return null;
+    }
+  }
+
+  // First try ID.
+  const byId = getCropById(raw);
+
+  if (byId) {
+    return byId;
+  }
+
+  // Then try name/alias.
+  if (typeof getCropByNameOrAlias === "function") {
+    const byAlias = getCropByNameOrAlias(raw);
+
+    if (byAlias) {
+      return byAlias;
+    }
+  }
+
+  return null;
+}
+
+
 // ============================================================
 // PRICE VALIDATION
 // ============================================================
@@ -121,9 +185,9 @@ function isValidPrice(price) {
   const number = Number(price);
 
   // Zero is not considered a usable market price.
-  // If a source gives 0, treat it as missing/invalid.
   return Number.isFinite(number) && number > 0;
 }
+
 
 // ============================================================
 // SOURCE RESULT UNWRAPPER
@@ -157,75 +221,182 @@ function unwrapSourceRecords(result) {
     return result;
   }
 
-  if (result && Array.isArray(result.records)) {
+  if (
+    result &&
+    Array.isArray(result.records)
+  ) {
     return result.records;
   }
 
   return [];
 }
 
+
 // ============================================================
 // NORMALIZE RECORD
 // ============================================================
 
 function normalizeRecord(record) {
-  if (!record || typeof record !== "object") {
+  if (
+    !record ||
+    typeof record !== "object"
+  ) {
     return null;
   }
 
-  const cropId = cleanString(record.cropId).toLowerCase();
+  // ----------------------------------------------------------
+  // RAW CROP VALUE
+  // ----------------------------------------------------------
 
-  const crop = getCropById(cropId);
+  const rawCropId = cleanString(
+    record.cropId ||
+    record.cropName ||
+    record.crop ||
+    record.zao
+  );
 
-  // Source crop must exist in master catalog
+  if (!rawCropId) {
+    return null;
+  }
+
+
+  // ----------------------------------------------------------
+  // RESOLVE CROP THROUGH MASTER + ALIASES
+  // ----------------------------------------------------------
+
+  const crop = resolveCrop(rawCropId);
+
+  // Source crop must exist in master catalog.
+  // Unknown/garbage crops are rejected.
   if (!crop) {
+    console.warn(
+      `[PRICE-AGGREGATOR] Crop rejected: "${rawCropId}"`
+    );
+
     return null;
   }
 
-  const source = cleanString(record.source);
+
+  // ----------------------------------------------------------
+  // SOURCE
+  // ----------------------------------------------------------
+
+  const source = cleanString(
+    record.source
+  );
 
   if (!source) {
     return null;
   }
 
-  const price = Number(record.price);
+
+  // ----------------------------------------------------------
+  // PRICE
+  // ----------------------------------------------------------
+
+  const price = Number(
+    record.price
+  );
 
   if (!isValidPrice(price)) {
     return null;
   }
 
-  const unit = normalizeUnit(record.unit || "unknown");
+
+  // ----------------------------------------------------------
+  // UNIT
+  // ----------------------------------------------------------
+
+  const unit = normalizeUnit(
+    record.unit || "unknown"
+  );
 
   /*
     We do not silently assume a unit.
   */
 
-  if (REQUIRE_KNOWN_UNIT && !canConvertToKg(unit)) {
+  if (
+    REQUIRE_KNOWN_UNIT &&
+    !canConvertToKg(unit)
+  ) {
     return null;
   }
 
-  const dataDate = record.dataDate || null;
 
-  const regionId = cleanString(record.regionId || record.regionName)
+  // ----------------------------------------------------------
+  // DATE
+  // ----------------------------------------------------------
+
+  const dataDate =
+    record.dataDate || null;
+
+
+  // ----------------------------------------------------------
+  // REGION
+  // ----------------------------------------------------------
+
+  const regionId = cleanString(
+    record.regionId ||
+    record.regionName
+  )
     .toLowerCase()
     .replace(/\s+/g, "_");
 
-  const regionName = cleanString(record.regionName || record.regionId);
+  const regionName = cleanString(
+    record.regionName ||
+    record.regionId
+  );
 
-  const market = cleanString(record.market) || null;
 
-  const priceType = cleanString(record.priceType) || null;
+  // ----------------------------------------------------------
+  // MARKET
+  // ----------------------------------------------------------
 
-  const minPrice = isValidPrice(record.minPrice)
-    ? Number(record.minPrice)
-    : null;
+  const market =
+    cleanString(record.market) ||
+    null;
 
-  const maxPrice = isValidPrice(record.maxPrice)
-    ? Number(record.maxPrice)
-    : null;
+
+  // ----------------------------------------------------------
+  // PRICE TYPE
+  // ----------------------------------------------------------
+
+  const priceType =
+    cleanString(record.priceType) ||
+    null;
+
+
+  // ----------------------------------------------------------
+  // MIN / MAX PRICE
+  // ----------------------------------------------------------
+
+  const minPrice =
+    isValidPrice(record.minPrice)
+      ? Number(record.minPrice)
+      : null;
+
+  const maxPrice =
+    isValidPrice(record.maxPrice)
+      ? Number(record.maxPrice)
+      : null;
+
+
+  // ----------------------------------------------------------
+  // BUILD NORMALIZED RECORD
+  // ----------------------------------------------------------
 
   const normalized = {
     source,
+
+    // IMPORTANT:
+    // Always save canonical master crop ID.
+    //
+    // Example:
+    // bulrush millet -> uwele
+    // finger millet -> ulezi
+    // rice -> mchele
+    // wheat grain -> ngano
+    // irish potatoes -> viazi mbatata
 
     cropId: crop.id,
 
@@ -249,21 +420,28 @@ function normalizeRecord(record) {
 
     dataDate,
 
-    sourceUrl: record.sourceUrl || null,
+    sourceUrl:
+      record.sourceUrl || null,
 
-    updatedAt: record.updatedAt || new Date().toISOString(),
+    updatedAt:
+      record.updatedAt ||
+      new Date().toISOString(),
 
     fresh: isFresh({
       dataDate,
     }),
 
-    sourcePriority: getPriorityScore(source),
+    sourcePriority:
+      getPriorityScore(source),
 
-    raw: record.raw || null,
+    raw:
+      record.raw || null,
   };
+
 
   return normalized;
 }
+
 
 // ============================================================
 // NORMALIZE ALL RECORDS
@@ -274,22 +452,36 @@ function normalizeRecords(records) {
     return [];
   }
 
-  return records.map(normalizeRecord).filter(Boolean);
+  return records
+    .map(normalizeRecord)
+    .filter(Boolean);
 }
+
 
 // ============================================================
 // GROUP KEY
 // ============================================================
 
 function makeGroupKey(record) {
-  const crop = cleanString(record.cropId).toLowerCase();
+  const crop =
+    cleanString(record.cropId)
+      .toLowerCase();
 
-  const region = cleanString(record.regionId).toLowerCase();
+  const region =
+    cleanString(record.regionId)
+      .toLowerCase();
 
-  const market = cleanString(record.market).toLowerCase();
+  const market =
+    cleanString(record.market)
+      .toLowerCase();
 
-  return [crop, region, market].join("|");
+  return [
+    crop,
+    region,
+    market,
+  ].join("|");
 }
+
 
 // ============================================================
 // SOURCE MATCH SCORE
@@ -302,13 +494,15 @@ function calculateRecordScore(record) {
   // 1. Source priority
   // ----------------------------------------------------------
 
-  const priority = Number(record.sourcePriority);
+  const priority =
+    Number(record.sourcePriority);
 
   if (Number.isFinite(priority)) {
     score += priority * 10;
   } else {
     score += 1000;
   }
+
 
   // ----------------------------------------------------------
   // 2. Freshness
@@ -320,6 +514,7 @@ function calculateRecordScore(record) {
     score += 30;
   }
 
+
   // ----------------------------------------------------------
   // 3. Exact region
   // ----------------------------------------------------------
@@ -327,6 +522,7 @@ function calculateRecordScore(record) {
   if (record.regionName) {
     score -= 10;
   }
+
 
   // ----------------------------------------------------------
   // 4. Market information
@@ -336,13 +532,18 @@ function calculateRecordScore(record) {
     score -= 5;
   }
 
+
   // ----------------------------------------------------------
   // 5. Known unit
   // ----------------------------------------------------------
 
-  if (record.unit && record.unit !== "unknown") {
+  if (
+    record.unit &&
+    record.unit !== "unknown"
+  ) {
     score -= 10;
   }
+
 
   // ----------------------------------------------------------
   // 6. Price type
@@ -352,22 +553,24 @@ function calculateRecordScore(record) {
     score -= 2;
   }
 
-  // Lower score = better candidate
 
+  // Lower score = better candidate.
   return score;
 }
 
-// ============================================================
-// SELECT BEST RECORD
-// ============================================================
+
 // ============================================================
 // SELECT BEST RECORD
 // ============================================================
 
 function selectBestRecord(records) {
-  if (!Array.isArray(records) || !records.length) {
+  if (
+    !Array.isArray(records) ||
+    !records.length
+  ) {
     return null;
   }
+
 
   // ----------------------------------------------------------
   // 1. Validate all records
@@ -375,13 +578,17 @@ function selectBestRecord(records) {
 
   const validRecords = records
     .filter((record) => {
-      // Price must be valid
-      if (!isValidPrice(record.price)) {
+
+      if (
+        !isValidPrice(record.price)
+      ) {
         return false;
       }
 
-      // Unit must be known when required
-      if (REQUIRE_KNOWN_UNIT && !canConvertToKg(record.unit)) {
+      if (
+        REQUIRE_KNOWN_UNIT &&
+        !canConvertToKg(record.unit)
+      ) {
         return false;
       }
 
@@ -390,8 +597,10 @@ function selectBestRecord(records) {
     .map((record) => ({
       ...record,
 
-      selectionScore: calculateRecordScore(record),
+      selectionScore:
+        calculateRecordScore(record),
     }));
+
 
   // ----------------------------------------------------------
   // 2. No valid records
@@ -401,87 +610,90 @@ function selectBestRecord(records) {
     return null;
   }
 
+
   // ----------------------------------------------------------
   // 3. Prefer fresh records
   // ----------------------------------------------------------
 
-  const freshRecords = validRecords.filter((record) => record.fresh);
+  const freshRecords =
+    validRecords.filter(
+      (record) => record.fresh
+    );
 
-  let candidates = freshRecords.length > 0 ? freshRecords : validRecords;
+  let candidates =
+    freshRecords.length > 0
+      ? freshRecords
+      : validRecords;
+
 
   // ----------------------------------------------------------
   // 4. Sort records
   // ----------------------------------------------------------
-  /*
-    IMPORTANT PRIORITY:
-
-    1. Fresh data
-    2. Newest dataDate
-    3. Better matching/quality score
-    4. Source priority
-
-    This means:
-
-    MIT
-    24 Aug 2026
-
-    beats
-
-    TanTrade
-    29 Apr 2026
-
-    when both records are otherwise valid.
-
-    Source priority is NOT allowed to make
-    an older record beat a newer record.
-  */
 
   candidates.sort((a, b) => {
+
     // --------------------------------------------------------
     // A. Freshness
     // --------------------------------------------------------
 
-    if (Boolean(a.fresh) !== Boolean(b.fresh)) {
+    if (
+      Boolean(a.fresh) !==
+      Boolean(b.fresh)
+    ) {
       return a.fresh ? -1 : 1;
     }
+
 
     // --------------------------------------------------------
     // B. Newest source data
     // --------------------------------------------------------
 
-    const aDate = parseDate(a.dataDate)?.getTime() || 0;
+    const aDate =
+      parseDate(a.dataDate)?.getTime() ||
+      0;
 
-    const bDate = parseDate(b.dataDate)?.getTime() || 0;
+    const bDate =
+      parseDate(b.dataDate)?.getTime() ||
+      0;
 
     if (aDate !== bDate) {
       return bDate - aDate;
     }
 
+
     // --------------------------------------------------------
     // C. Selection / matching quality
     // --------------------------------------------------------
 
-    if (a.selectionScore !== b.selectionScore) {
-      return a.selectionScore - b.selectionScore;
+    if (
+      a.selectionScore !==
+      b.selectionScore
+    ) {
+      return (
+        a.selectionScore -
+        b.selectionScore
+      );
     }
+
 
     // --------------------------------------------------------
     // D. Source priority
     // --------------------------------------------------------
-    /*
-      If everything else is equal,
-      calculateRecordScore() decides the
-      preferred source.
-    */
 
-    return 0;
+    return (
+      Number(a.sourcePriority || 999) -
+      Number(b.sourcePriority || 999)
+    );
   });
+
 
   // ----------------------------------------------------------
   // 5. Select best record
   // ----------------------------------------------------------
 
-  const selected = candidates[0];
+  const selected =
+    candidates[0];
+
 
   // ----------------------------------------------------------
   // 6. Mark freshness status
@@ -492,62 +704,31 @@ function selectBestRecord(records) {
 
     stale: !selected.fresh,
 
-    dataStatus: selected.fresh ? "fresh" : "stale",
+    dataStatus:
+      selected.fresh
+        ? "fresh"
+        : "stale",
   };
 }
+
 
 // ============================================================
 // CONVERT PRICE TO KG
 // ============================================================
+
 function addKgEquivalent(record) {
   if (!record) {
     return null;
   }
 
+
   // ----------------------------------------------------------
   // 1. Check whether unit is known
   // ----------------------------------------------------------
 
-  if (!record.unit || !canConvertToKg(record.unit)) {
-    return {
-      ...record,
-
-      pricePerKg: null,
-
-      kgEquivalentAvailable: false,
-    };
-  }
-
-  // ----------------------------------------------------------
-  // 2. Convert PRICE to price per KG
-  // ----------------------------------------------------------
-  /*
-    IMPORTANT:
-
-    convertToKg() is for converting QUANTITY.
-
-    Example:
-      convertToKg(5, "100kg")
-      => 500 kg
-
-    It must NOT be used to convert price.
-
-    For price we use convertPrice():
-
-      95,000 TZS / 100kg
-      => 950 TZS/kg
-  */
-
-  const pricePerKg = convertPrice(record.price, record.unit, "kg");
-
-  // ----------------------------------------------------------
-  // 3. Validate converted price
-  // ----------------------------------------------------------
-
   if (
-    pricePerKg === null ||
-    pricePerKg === undefined ||
-    !Number.isFinite(Number(pricePerKg))
+    !record.unit ||
+    !canConvertToKg(record.unit)
   ) {
     return {
       ...record,
@@ -558,6 +739,53 @@ function addKgEquivalent(record) {
     };
   }
 
+
+  // ----------------------------------------------------------
+  // 2. Convert PRICE to price per KG
+  // ----------------------------------------------------------
+
+  /*
+    IMPORTANT:
+
+    convertToKg() is for converting QUANTITY.
+
+    It must NOT be used to convert price.
+
+    For price we use convertPrice():
+
+      95,000 TZS / 100kg
+      => 950 TZS/kg
+  */
+
+  const pricePerKg =
+    convertPrice(
+      record.price,
+      record.unit,
+      "kg"
+    );
+
+
+  // ----------------------------------------------------------
+  // 3. Validate converted price
+  // ----------------------------------------------------------
+
+  if (
+    pricePerKg === null ||
+    pricePerKg === undefined ||
+    !Number.isFinite(
+      Number(pricePerKg)
+    )
+  ) {
+    return {
+      ...record,
+
+      pricePerKg: null,
+
+      kgEquivalentAvailable: false,
+    };
+  }
+
+
   // ----------------------------------------------------------
   // 4. Return normalized record
   // ----------------------------------------------------------
@@ -565,11 +793,13 @@ function addKgEquivalent(record) {
   return {
     ...record,
 
-    pricePerKg: Number(pricePerKg),
+    pricePerKg:
+      Number(pricePerKg),
 
     kgEquivalentAvailable: true,
   };
 }
+
 
 // ============================================================
 // GROUP SOURCE RECORDS
@@ -579,17 +809,22 @@ function groupRecords(records) {
   const groups = new Map();
 
   for (const record of records) {
-    const key = makeGroupKey(record);
+
+    const key =
+      makeGroupKey(record);
 
     if (!groups.has(key)) {
       groups.set(key, []);
     }
 
-    groups.get(key).push(record);
+    groups
+      .get(key)
+      .push(record);
   }
 
   return groups;
 }
+
 
 // ============================================================
 // BUILD AGGREGATED RECORD
@@ -600,76 +835,107 @@ function buildAggregatedRecord(records) {
     return null;
   }
 
-  const selected = selectBestRecord(records);
+  const selected =
+    selectBestRecord(records);
 
   if (!selected) {
     return null;
   }
 
-  const selectedWithKg = addKgEquivalent(selected);
+  const selectedWithKg =
+    addKgEquivalent(selected);
 
   return {
-    cropId: selected.cropId,
+    cropId:
+      selected.cropId,
 
-    cropName: selected.cropName,
+    cropName:
+      selected.cropName,
 
-    regionId: selected.regionId,
+    regionId:
+      selected.regionId,
 
-    regionName: selected.regionName,
+    regionName:
+      selected.regionName,
 
-    market: selected.market,
+    market:
+      selected.market,
 
-    price: selected.price,
+    price:
+      selected.price,
 
-    minPrice: selected.minPrice,
+    minPrice:
+      selected.minPrice,
 
-    maxPrice: selected.maxPrice,
+    maxPrice:
+      selected.maxPrice,
 
-    unit: selected.unit,
+    unit:
+      selected.unit,
 
-    priceType: selected.priceType,
+    priceType:
+      selected.priceType,
 
-    dataDate: selected.dataDate,
+    dataDate:
+      selected.dataDate,
 
-    source: selected.source,
+    source:
+      selected.source,
 
-    sourceUrl: selected.sourceUrl,
+    sourceUrl:
+      selected.sourceUrl,
 
-    updatedAt: selected.updatedAt,
+    updatedAt:
+      selected.updatedAt,
 
-    pricePerKg: selectedWithKg.pricePerKg,
+    pricePerKg:
+      selectedWithKg.pricePerKg,
 
-    kgEquivalentAvailable: selectedWithKg.kgEquivalentAvailable,
+    kgEquivalentAvailable:
+      selectedWithKg.kgEquivalentAvailable,
 
-    selectionScore: selected.selectionScore,
+    selectionScore:
+      selected.selectionScore,
 
-    availableSources: records.map((record) => ({
-      source: record.source,
+    availableSources:
+      records.map((record) => ({
+        source:
+          record.source,
 
-      price: record.price,
+        price:
+          record.price,
 
-      minPrice: record.minPrice,
+        minPrice:
+          record.minPrice,
 
-      maxPrice: record.maxPrice,
+        maxPrice:
+          record.maxPrice,
 
-      unit: record.unit,
+        unit:
+          record.unit,
 
-      priceType: record.priceType,
+        priceType:
+          record.priceType,
 
-      dataDate: record.dataDate,
+        dataDate:
+          record.dataDate,
 
-      sourceUrl: record.sourceUrl,
+        sourceUrl:
+          record.sourceUrl,
 
-      fresh: record.fresh,
-    })),
+        fresh:
+          record.fresh,
+      })),
   };
 }
+
 
 // ============================================================
 // FETCH ALL SOURCES
 // ============================================================
 
 async function fetchAllSources(options = {}) {
+
   const results = {
     moa: [],
     ratin: [],
@@ -677,75 +943,141 @@ async function fetchAllSources(options = {}) {
     mit: [],
   };
 
+
+  // ----------------------------------------------------------
+  // MOA
+  // ----------------------------------------------------------
+
   try {
-    const moa = await fetchMoaPrices(options.moa || {});
 
-    results.moa = unwrapSourceRecords(moa);
+    const moa =
+      await fetchMoaPrices(
+        options.moa || {}
+      );
 
-    console.log(`[PRICE-AGGREGATOR] MOA records: ${results.moa.length}`);
+    results.moa =
+      unwrapSourceRecords(moa);
+
+    console.log(
+      `[PRICE-AGGREGATOR] MOA records: ${results.moa.length}`
+    );
+
   } catch (error) {
-    console.error("[PRICE-AGGREGATOR] MOA error:", error.message);
+
+    console.error(
+      "[PRICE-AGGREGATOR] MOA error:",
+      error.message
+    );
   }
+
 
   // ----------------------------------------------------------
   // RATIN
   // ----------------------------------------------------------
 
   try {
-    const ratin = await fetchRatinPrices(options.ratin || {});
 
-    results.ratin = unwrapSourceRecords(ratin);
+    const ratin =
+      await fetchRatinPrices(
+        options.ratin || {}
+      );
 
-    console.log(`[PRICE-AGGREGATOR] RATIN records: ${results.ratin.length}`);
+    results.ratin =
+      unwrapSourceRecords(ratin);
+
+    console.log(
+      `[PRICE-AGGREGATOR] RATIN records: ${results.ratin.length}`
+    );
+
   } catch (error) {
-    console.error("[PRICE-AGGREGATOR] RATIN error:", error.message);
+
+    console.error(
+      "[PRICE-AGGREGATOR] RATIN error:",
+      error.message
+    );
   }
+
 
   // ----------------------------------------------------------
   // TANTRADE
   // ----------------------------------------------------------
 
   try {
-    const tantrade = await fetchTantradePrices(options.tantrade || {});
 
-    results.tantrade = unwrapSourceRecords(tantrade);
+    const tantrade =
+      await fetchTantradePrices(
+        options.tantrade || {}
+      );
+
+    results.tantrade =
+      unwrapSourceRecords(tantrade);
 
     console.log(
-      `[PRICE-AGGREGATOR] TanTrade records: ${results.tantrade.length}`,
+      `[PRICE-AGGREGATOR] TanTrade records: ${results.tantrade.length}`
     );
+
   } catch (error) {
-    console.error("[PRICE-AGGREGATOR] TanTrade error:", error.message);
+
+    console.error(
+      "[PRICE-AGGREGATOR] TanTrade error:",
+      error.message
+    );
   }
+
 
   // ----------------------------------------------------------
   // MIT
   // ----------------------------------------------------------
 
   try {
-    const mit = await fetchMitPrices(options.mit || {});
 
-    results.mit = unwrapSourceRecords(mit);
+    const mit =
+      await fetchMitPrices(
+        options.mit || {}
+      );
 
-    console.log(`[PRICE-AGGREGATOR] MIT records: ${results.mit.length}`);
+    results.mit =
+      unwrapSourceRecords(mit);
+
+    console.log(
+      `[PRICE-AGGREGATOR] MIT records: ${results.mit.length}`
+    );
+
   } catch (error) {
-    console.error("[PRICE-AGGREGATOR] MIT error:", error.message);
+
+    console.error(
+      "[PRICE-AGGREGATOR] MIT error:",
+      error.message
+    );
   }
+
 
   return results;
 }
+
 
 // ============================================================
 // AGGREGATE ALL SOURCES
 // ============================================================
 
 async function aggregatePrices(options = {}) {
-  console.log("[PRICE-AGGREGATOR] Starting price aggregation...");
 
-  const masterCrops = getMasterCrops();
+  console.log(
+    "[PRICE-AGGREGATOR] Starting price aggregation..."
+  );
 
-  console.log(`[PRICE-AGGREGATOR] Master crops: ${masterCrops.length}`);
 
-  const sourceResults = await fetchAllSources(options);
+  const masterCrops =
+    getMasterCrops();
+
+  console.log(
+    `[PRICE-AGGREGATOR] Master crops: ${masterCrops.length}`
+  );
+
+
+  const sourceResults =
+    await fetchAllSources(options);
+
 
   // ----------------------------------------------------------
   // Combine all raw records
@@ -758,25 +1090,38 @@ async function aggregatePrices(options = {}) {
     ...sourceResults.mit,
   ];
 
-  console.log(`[PRICE-AGGREGATOR] Raw records: ${allRawRecords.length}`);
+  console.log(
+    `[PRICE-AGGREGATOR] Raw records: ${allRawRecords.length}`
+  );
+
 
   // ----------------------------------------------------------
   // Normalize
   // ----------------------------------------------------------
 
-  const normalizedRecords = normalizeRecords(allRawRecords);
+  const normalizedRecords =
+    normalizeRecords(
+      allRawRecords
+    );
 
   console.log(
-    `[PRICE-AGGREGATOR] Valid normalized records: ${normalizedRecords.length}`,
+    `[PRICE-AGGREGATOR] Valid normalized records: ${normalizedRecords.length}`
   );
+
 
   // ----------------------------------------------------------
   // Group
   // ----------------------------------------------------------
 
-  const groups = groupRecords(normalizedRecords);
+  const groups =
+    groupRecords(
+      normalizedRecords
+    );
 
-  console.log(`[PRICE-AGGREGATOR] Groups: ${groups.size}`);
+  console.log(
+    `[PRICE-AGGREGATOR] Groups: ${groups.size}`
+  );
+
 
   // ----------------------------------------------------------
   // Build final records
@@ -784,75 +1129,127 @@ async function aggregatePrices(options = {}) {
 
   const aggregated = [];
 
-  for (const records of groups.values()) {
-    const record = buildAggregatedRecord(records);
+  for (
+    const records of groups.values()
+  ) {
+
+    const record =
+      buildAggregatedRecord(
+        records
+      );
 
     if (record) {
       aggregated.push(record);
     }
   }
 
-  console.log(`[PRICE-AGGREGATOR] Final records: ${aggregated.length}`);
+
+  console.log(
+    `[PRICE-AGGREGATOR] Final records: ${aggregated.length}`
+  );
+
 
   return {
     success: true,
 
-    masterCropCount: masterCrops.length,
+    masterCropCount:
+      masterCrops.length,
 
-    rawRecordCount: allRawRecords.length,
+    rawRecordCount:
+      allRawRecords.length,
 
-    normalizedRecordCount: normalizedRecords.length,
+    normalizedRecordCount:
+      normalizedRecords.length,
 
-    groupCount: groups.size,
+    groupCount:
+      groups.size,
 
-    aggregatedRecordCount: aggregated.length,
+    aggregatedRecordCount:
+      aggregated.length,
 
     sources: {
-      MOA: sourceResults.moa.length,
-      RATIN: sourceResults.ratin.length,
-      TanTrade: sourceResults.tantrade.length,
-      MIT: sourceResults.mit.length,
+      MOA:
+        sourceResults.moa.length,
+
+      RATIN:
+        sourceResults.ratin.length,
+
+      TanTrade:
+        sourceResults.tantrade.length,
+
+      MIT:
+        sourceResults.mit.length,
     },
 
-    records: aggregated,
+    records:
+      aggregated,
 
-    generatedAt: new Date().toISOString(),
+    generatedAt:
+      new Date().toISOString(),
   };
 }
+
 
 // ============================================================
 // GET PRICES FOR SPECIFIC CROP
 // ============================================================
 
-function filterByCrop(records, cropId) {
+function filterByCrop(
+  records,
+  cropId
+) {
+
   if (!cropId) {
     return records;
   }
 
-  const normalized = String(cropId).trim().toLowerCase();
+  const crop =
+    resolveCrop(cropId);
 
-  return records.filter((record) => record.cropId === normalized);
+  if (!crop) {
+    return [];
+  }
+
+  return records.filter(
+    (record) =>
+      record.cropId === crop.id
+  );
 }
+
 
 // ============================================================
 // GET PRICES FOR SPECIFIC REGION
 // ============================================================
 
-function filterByRegion(records, regionId) {
+function filterByRegion(
+  records,
+  regionId
+) {
+
   if (!regionId) {
     return records;
   }
 
-  const normalized = String(regionId).trim().toLowerCase();
+  const normalized =
+    String(regionId)
+      .trim()
+      .toLowerCase();
 
-  return records.filter((record) => record.regionId === normalized);
+  return records.filter(
+    (record) =>
+      record.regionId === normalized
+  );
 }
+
 
 // ============================================================
 // SUMMARY
 // ============================================================
 
-function getAggregationSummary(records) {
+function getAggregationSummary(
+  records
+) {
+
   const summary = {
     total: records.length,
 
@@ -863,48 +1260,69 @@ function getAggregationSummary(records) {
     sources: new Set(),
   };
 
-  for (const record of records) {
+
+  for (
+    const record of records
+  ) {
+
     if (record.cropId) {
-      summary.crops.add(record.cropId);
+      summary.crops.add(
+        record.cropId
+      );
     }
 
     if (record.regionId) {
-      summary.regions.add(record.regionId);
+      summary.regions.add(
+        record.regionId
+      );
     }
 
     if (record.source) {
-      summary.sources.add(record.source);
+      summary.sources.add(
+        record.source
+      );
     }
   }
 
+
   return {
-    total: summary.total,
+    total:
+      summary.total,
 
-    uniqueCrops: summary.crops.size,
+    uniqueCrops:
+      summary.crops.size,
 
-    uniqueRegions: summary.regions.size,
+    uniqueRegions:
+      summary.regions.size,
 
-    sources: [...summary.sources],
+    sources:
+      [...summary.sources],
   };
 }
+
 
 // ============================================================
 // EXPORTS
 // ============================================================
 
 module.exports = {
+
   aggregatePrices,
 
   fetchAllSources,
 
   normalizeRecord,
+
   normalizeRecords,
 
   groupRecords,
+
   selectBestRecord,
+
   buildAggregatedRecord,
 
   filterByCrop,
+
   filterByRegion,
 
   getAggregationSummary,
@@ -912,4 +1330,5 @@ module.exports = {
   getSourcePriority,
 
   unwrapSourceRecords,
+
 };

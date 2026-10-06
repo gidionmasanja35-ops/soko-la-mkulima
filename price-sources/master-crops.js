@@ -29,9 +29,11 @@ const MASTER_CROPS = [
     category: "Nafaka",
     aliases: [
       "paddy",
-           "paddy rice",
+      "paddy rice",
       "rice paddy",
       "mpunga mbichi",
+      "unmilled rice",
+      "unmilled rice grain",
     ],
   },
 
@@ -58,12 +60,27 @@ const MASTER_CROPS = [
   },
 
   {
+    // Uwele = Bulrush/Pearl Millet
     id: "uwele",
     name: "uwele",
     category: "Nafaka",
     aliases: [
+      "bulrush millet",
+      "bulrush",
+      "pearl millet",
+      "pearl-millet",
+      "bulrush-millet",
+      "millet grain",
+    ],
+  },
+
+  {
+    // Ulezi = Finger Millet
+    id: "ulezi",
+    name: "ulezi",
+    category: "Nafaka",
+    aliases: [
       "finger millet",
-      "millet",
       "finger-millet",
     ],
   },
@@ -75,17 +92,6 @@ const MASTER_CROPS = [
     aliases: [
       "wheat",
       "wheat grain",
-    ],
-  },
-
-  {
-    id: "wimbi",
-    name: "wimbi",
-    category: "Nafaka",
-    aliases: [
-      "bulrush millet",
-      "pearl millet",
-      "millet grain",
     ],
   },
 
@@ -215,8 +221,10 @@ const MASTER_CROPS = [
       "potato",
       "irish potatoes",
       "irish potato",
+      "irish potatoes",
       "round potatoes",
       "round potato",
+      "round potatoes",
     ],
   },
 
@@ -630,64 +638,320 @@ const MASTER_CROPS = [
 
 
 // ============================================================
-// HELPER FUNCTIONS
+// NORMALIZATION
 // ============================================================
 
-/**
- * Get all master crops.
- */
+function normalizeCropText(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[‐-‒–—−]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\s*\/\s*/g, " / ")
+    .trim();
+}
+
+
+// ============================================================
+// INVALID / GARBAGE CROP DETECTION
+// ============================================================
+//
+// Hizi ni values ambazo parser inaweza kusoma kimakosa kutoka
+// kwenye header, region, unit au placeholder.
+
+const INVALID_CROP_VALUES = new Set([
+  "tzs / kilo 100",
+  "tzs/kilo 100",
+  "tzs per kilo 100",
+  "price",
+  "prices",
+  "price per kg",
+  "price per kilo",
+  "commodity",
+  "commodity name",
+  "crop",
+  "crop name",
+  "product",
+  "product name",
+  "item",
+  "items",
+  "region",
+  "mkoa",
+  "district",
+  "wilaya",
+  "market",
+  "market name",
+  "date",
+  "tarehe",
+  "unit",
+  "units",
+  "quantity",
+  "amount",
+  "average price",
+  "wholesale price",
+  "retail price",
+  "minimum price",
+  "maximum price",
+  "national average",
+  "weekly average",
+  "n/a",
+  "na",
+  "-",
+  "--",
+  "null",
+  "undefined",
+]);
+
+
+// Tanzania regions ambazo parser haipaswi kuziweka kama crop.
+
+const TANZANIA_REGIONS = new Set([
+  "arusha",
+  "dar es salaam",
+  "dodoma",
+  "geita",
+  "iringa",
+  "kagera",
+  "katavi",
+  "kigoma",
+  "kilimanjaro",
+  "lindi",
+  "manyara",
+  "mara",
+  "mbeya",
+  "morogoro",
+  "mtwara",
+  "mwanza",
+  "njombe",
+  "pwani",
+  "rukwa",
+  "ruvuma",
+  "shinyanga",
+  "simiyu",
+  "singida",
+  "songwe",
+  "tabora",
+  "tanga",
+  "zanzibar",
+  "unguja",
+  "pemba",
+]);
+
+
+// ============================================================
+// VALIDATE SOURCE CROP NAME
+// ============================================================
+
+function isInvalidCropName(value) {
+  const normalized = normalizeCropText(value);
+
+  if (!normalized) {
+    return true;
+  }
+
+  // Generic parser placeholders:
+  // zao_11, zao_12, zao_13...
+  if (/^zao_\d+$/i.test(normalized)) {
+    return true;
+  }
+
+  // Generic row placeholders
+  if (/^crop[_\s-]?\d+$/i.test(normalized)) {
+    return true;
+  }
+
+  if (/^item[_\s-]?\d+$/i.test(normalized)) {
+    return true;
+  }
+
+  if (/^product[_\s-]?\d+$/i.test(normalized)) {
+    return true;
+  }
+
+  // Numeric-only values are never crop names.
+  if (/^\d+(?:\.\d+)?$/.test(normalized)) {
+    return true;
+  }
+
+  // Values containing only symbols/numbers.
+  if (!/[a-zA-ZÀ-ÿ]/.test(normalized)) {
+    return true;
+  }
+
+  if (INVALID_CROP_VALUES.has(normalized)) {
+    return true;
+  }
+
+  // Region names should never become crop IDs.
+  if (TANZANIA_REGIONS.has(normalized)) {
+    return true;
+  }
+
+  // Unit/header garbage.
+  if (
+    normalized.includes("kilo 100") ||
+    normalized.includes("per kg") ||
+    normalized.includes("per kilo") ||
+    normalized.includes("wholesale price") ||
+    normalized.includes("retail price") ||
+    normalized.includes("average price")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+
+// ============================================================
+// GET ALL MASTER CROPS
+// ============================================================
+
 function getMasterCrops() {
   return MASTER_CROPS;
 }
 
 
-/**
- * Find a master crop by its ID.
- */
+// ============================================================
+// FIND CROP BY EXACT ID
+// ============================================================
+
 function getCropById(id) {
   if (!id) return null;
 
-  const normalized = String(id)
-    .trim()
-    .toLowerCase();
+  const normalized = normalizeCropText(id);
 
-  return MASTER_CROPS.find(
-    (crop) => crop.id.toLowerCase() === normalized
-  ) || null;
+  if (isInvalidCropName(normalized)) {
+    return null;
+  }
+
+  return (
+    MASTER_CROPS.find(
+      (crop) => normalizeCropText(crop.id) === normalized
+    ) || null
+  );
 }
 
 
-/**
- * Get all crop IDs.
- */
+// ============================================================
+// FIND CROP BY ID OR ALIAS
+// ============================================================
+//
+// Example:
+//
+// getCropByNameOrAlias("bulrush millet")
+//       ↓
+// returns crop with id "uwele"
+//
+// getCropByNameOrAlias("finger millet")
+//       ↓
+// returns crop with id "ulezi"
+//
+// getCropByNameOrAlias("irish potatoes")
+//       ↓
+// returns crop with id "viazi mbatata"
+
+function getCropByNameOrAlias(value) {
+  if (!value) return null;
+
+  const normalized = normalizeCropText(value);
+
+  if (isInvalidCropName(normalized)) {
+    return null;
+  }
+
+  // First try exact ID.
+  const byId = MASTER_CROPS.find(
+    (crop) => normalizeCropText(crop.id) === normalized
+  );
+
+  if (byId) {
+    return byId;
+  }
+
+  // Then try crop name.
+  const byName = MASTER_CROPS.find(
+    (crop) => normalizeCropText(crop.name) === normalized
+  );
+
+  if (byName) {
+    return byName;
+  }
+
+  // Finally try aliases.
+  const byAlias = MASTER_CROPS.find((crop) =>
+    Array.isArray(crop.aliases) &&
+    crop.aliases.some(
+      (alias) => normalizeCropText(alias) === normalized
+    )
+  );
+
+  return byAlias || null;
+}
+
+
+// ============================================================
+// GET CANONICAL CROP ID
+// ============================================================
+//
+// Returns:
+//
+// "bulrush millet" → "uwele"
+// "finger millet"  → "ulezi"
+// "rice"           → "mchele"
+// "irish potatoes" → "viazi mbatata"
+//
+// Invalid values return null.
+
+function getCanonicalCropId(value) {
+  const crop = getCropByNameOrAlias(value);
+
+  if (!crop) {
+    return null;
+  }
+
+  return crop.id;
+}
+
+
+// ============================================================
+// GET ALL CROP IDs
+// ============================================================
+
 function getCropIds() {
   return MASTER_CROPS.map((crop) => crop.id);
 }
 
 
-/**
- * Get crops belonging to a category.
- */
+// ============================================================
+// GET CROPS BY CATEGORY
+// ============================================================
+
 function getCropsByCategory(category) {
   if (!category) return [];
 
-  const normalized = String(category)
-    .trim()
-    .toLowerCase();
+  const normalized = normalizeCropText(category);
 
   return MASTER_CROPS.filter(
-    (crop) => crop.category.toLowerCase() === normalized
+    (crop) => normalizeCropText(crop.category) === normalized
   );
 }
 
 
-/**
- * Get aliases for a specific crop.
- */
-function getCropAliases(id) {
-  const crop = getCropById(id);
+// ============================================================
+// GET ALIASES FOR A SPECIFIC CROP
+// ============================================================
 
-  if (!crop) return [];
+function getCropAliases(id) {
+  const crop = getCropByNameOrAlias(id);
+
+  if (!crop) {
+    return [];
+  }
 
   return [
     crop.name,
@@ -702,9 +966,22 @@ function getCropAliases(id) {
 
 module.exports = {
   MASTER_CROPS,
+
   getMasterCrops,
+
   getCropById,
+
+  getCropByNameOrAlias,
+
+  getCanonicalCropId,
+
   getCropIds,
+
   getCropsByCategory,
+
   getCropAliases,
+
+  normalizeCropText,
+
+  isInvalidCropName,
 };
