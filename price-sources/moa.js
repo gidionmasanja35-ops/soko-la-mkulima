@@ -13,13 +13,15 @@ const { normalizeUnitName } = require("./unit-converter");
 
 const SOURCE_NAME = "MOA";
 
-const MOA_PRICE_PAGE = "https://www.kilimo.go.tz/publications/market-bulletin";
+const MOA_PRICE_PAGE =
+  "https://www.kilimo.go.tz/publications/market-bulletin";
 
 // Official fallback PDF currently being used
 const FALLBACK_PDF_URL =
   "https://www.kilimo.go.tz/uploads/documents/sw-1791091825-Weekly%20Market%20Bulletin%2028%20Sept,%2002%20Oct%202026.pdf";
 
-const DEFAULT_PDF_URL = process.env.MOA_PDF_URL || FALLBACK_PDF_URL;
+const DEFAULT_PDF_URL =
+  process.env.MOA_PDF_URL || FALLBACK_PDF_URL;
 
 // ============================================================
 // MOA CROP ORDER
@@ -100,7 +102,10 @@ function parseNumber(value) {
     return null;
   }
 
-  const cleaned = String(value).replace(/,/g, "").replace(/\s/g, "").trim();
+  const cleaned = String(value)
+    .replace(/,/g, "")
+    .replace(/\s/g, "")
+    .trim();
 
   if (
     !cleaned ||
@@ -123,7 +128,12 @@ function isMissing(value) {
 
   const text = normalizeText(value);
 
-  return text === "" || text === "-" || text === "na" || text === "n/a";
+  return (
+    text === "" ||
+    text === "-" ||
+    text === "na" ||
+    text === "n/a"
+  );
 }
 
 // ============================================================
@@ -146,7 +156,8 @@ const MONTHS = {
 };
 
 function buildDate(day, monthName, year) {
-  const month = MONTHS[String(monthName).toLowerCase().trim()];
+  const month =
+    MONTHS[String(monthName).toLowerCase().trim()];
 
   if (!month) {
     return null;
@@ -167,7 +178,11 @@ function extractReportDate(text) {
     const endMonth = rangeMatch[4];
     const year = rangeMatch[5];
 
-    const date = buildDate(endDay, endMonth, year);
+    const date = buildDate(
+      endDay,
+      endMonth,
+      year
+    );
 
     if (date) {
       return date;
@@ -179,7 +194,11 @@ function extractReportDate(text) {
   );
 
   if (dateMatch) {
-    return buildDate(dateMatch[1], dateMatch[2], dateMatch[3]);
+    return buildDate(
+      dateMatch[1],
+      dateMatch[2],
+      dateMatch[3]
+    );
   }
 
   return null;
@@ -191,20 +210,25 @@ function extractReportDate(text) {
 
 async function findLatestPdfUrl() {
   try {
-    const response = await axios.get(MOA_PRICE_PAGE, {
-      timeout: 30000,
+    const response = await axios.get(
+      MOA_PRICE_PAGE,
+      {
+        timeout: 30000,
 
-      headers: {
-        Accept: "text/html",
-        "User-Agent": "Soko-la-Mkulima-Price-Sync",
-      },
-    });
+        headers: {
+          Accept: "text/html",
+          "User-Agent":
+            "Soko-la-Mkulima-Price-Sync",
+        },
+      }
+    );
 
     const html = String(response.data || "");
 
     const matches = [];
 
-    const hrefRegex = /href\s*=\s*["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi;
+    const hrefRegex =
+      /href\s*=\s*["']([^"']+\.pdf(?:\?[^"']*)?)["']/gi;
 
     let match;
 
@@ -213,7 +237,9 @@ async function findLatestPdfUrl() {
     }
 
     const bulletinPdf = matches.find((url) =>
-      /weekly[\s_-]*market[\s_-]*bulletin/i.test(url),
+      /weekly[\s_-]*market[\s_-]*bulletin/i.test(
+        url
+      )
     );
 
     if (bulletinPdf) {
@@ -226,7 +252,10 @@ async function findLatestPdfUrl() {
 
     return null;
   } catch (error) {
-    console.error("[MOA] Could not discover latest PDF:", error.message);
+    console.error(
+      "[MOA] Could not discover latest PDF:",
+      error.message
+    );
 
     return null;
   }
@@ -237,7 +266,10 @@ function makeAbsoluteUrl(url) {
     return null;
   }
 
-  if (url.startsWith("http://") || url.startsWith("https://")) {
+  if (
+    url.startsWith("http://") ||
+    url.startsWith("https://")
+  ) {
     return url;
   }
 
@@ -249,7 +281,10 @@ function makeAbsoluteUrl(url) {
     return `https://www.kilimo.go.tz${url}`;
   }
 
-  return new URL(url, MOA_PRICE_PAGE).toString();
+  return new URL(
+    url,
+    MOA_PRICE_PAGE
+  ).toString();
 }
 
 // ============================================================
@@ -258,18 +293,24 @@ function makeAbsoluteUrl(url) {
 
 async function downloadPdf(pdfUrl) {
   if (!pdfUrl) {
-    throw new Error("MOA PDF URL haijapatikana.");
+    throw new Error(
+      "MOA PDF URL haijapatikana."
+    );
   }
 
-  const response = await axios.get(pdfUrl, {
-    responseType: "arraybuffer",
-    timeout: 60000,
+  const response = await axios.get(
+    pdfUrl,
+    {
+      responseType: "arraybuffer",
+      timeout: 60000,
 
-    headers: {
-      Accept: "application/pdf",
-      "User-Agent": "Soko-la-Mkulima-Price-Sync",
-    },
-  });
+      headers: {
+        Accept: "application/pdf",
+        "User-Agent":
+          "Soko-la-Mkulima-Price-Sync",
+      },
+    }
+  );
 
   return Buffer.from(response.data);
 }
@@ -280,7 +321,9 @@ async function downloadPdf(pdfUrl) {
 
 async function extractPdfText(buffer) {
   if (!Buffer.isBuffer(buffer)) {
-    throw new Error("MOA PDF buffer si valid.");
+    throw new Error(
+      "MOA PDF buffer si valid."
+    );
   }
 
   const parser = new PDFParse({
@@ -295,10 +338,6 @@ async function extractPdfText(buffer) {
     // ========================================================
     // DEBUG TABLE 2
     // ========================================================
-    //
-    // Hii inatuonyesha exactly jinsi pdf-parse
-    // inavyosoma Table 2 kutoka kwenye PDF.
-    //
 
     const debugLines = String(rawText)
       .split("\n")
@@ -308,27 +347,43 @@ async function extractPdfText(buffer) {
     let insideTable2 = false;
 
     for (const line of debugLines) {
-      const normalized = normalizeText(line);
+      const normalized =
+        normalizeText(line);
 
       if (
         normalized.includes("table 2:") &&
-        normalized.includes("regional weekly average")
+        normalized.includes(
+          "regional weekly average"
+        )
       ) {
         insideTable2 = true;
 
-        console.log("\n========================================");
+        console.log(
+          "\n========================================"
+        );
 
-        console.log("MOA TABLE 2 RAW TEXT");
+        console.log(
+          "MOA TABLE 2 RAW TEXT"
+        );
 
-        console.log("========================================\n");
+        console.log(
+          "========================================\n"
+        );
 
-        console.log("========== TABLE 2 START ==========\n");
+        console.log(
+          "========== TABLE 2 START ==========\n"
+        );
 
         continue;
       }
 
-      if (insideTable2 && normalized.includes("table 4:")) {
-        console.log("\n========== TABLE 2 END ==========\n");
+      if (
+        insideTable2 &&
+        normalized.includes("table 4:")
+      ) {
+        console.log(
+          "\n========== TABLE 2 END ==========\n"
+        );
 
         break;
       }
@@ -353,7 +408,8 @@ function detectRegion(regionName) {
     return null;
   }
 
-  const result = matchRegion(regionName);
+  const result =
+    matchRegion(regionName);
 
   if (result && result.matched) {
     return result;
@@ -373,16 +429,21 @@ function getMoaCrop(index) {
     return null;
   }
 
-  const masterCrop = getCropById(crop.cropId);
+  const masterCrop =
+    getCropById(crop.cropId);
 
   if (!masterCrop) {
     return null;
   }
 
   return {
-    cropId: masterCrop.cropId || crop.cropId,
+    cropId:
+      masterCrop.cropId ||
+      crop.cropId,
 
-    cropName: masterCrop.cropName || crop.cropName,
+    cropName:
+      masterCrop.cropName ||
+      crop.cropName,
   };
 }
 
@@ -404,7 +465,8 @@ function parseCurrentValues(valueText) {
       continue;
     }
 
-    const value = parseNumber(token);
+    const value =
+      parseNumber(token);
 
     if (value !== null) {
       values.push(value);
@@ -451,8 +513,9 @@ function parseRegionalRows(text) {
     "Simiyu",
   ];
 
-  // Longest names first
-  regionNames.sort((a, b) => b.length - a.length);
+  regionNames.sort(
+    (a, b) => b.length - a.length
+  );
 
   const records = [];
 
@@ -462,27 +525,25 @@ function parseRegionalRows(text) {
 
   let pendingValues = [];
 
-  // ----------------------------------------------------------
-  // Find region anywhere in line
-  // ----------------------------------------------------------
-
   function findRegionInLine(line) {
-    const normalizedLine = normalizeText(line);
+    const normalizedLine =
+      normalizeText(line);
 
     for (const regionName of regionNames) {
-      const normalizedRegion = normalizeText(regionName);
+      const normalizedRegion =
+        normalizeText(regionName);
 
-      if (normalizedLine.includes(normalizedRegion)) {
+      if (
+        normalizedLine.includes(
+          normalizedRegion
+        )
+      ) {
         return regionName;
       }
     }
 
     return null;
   }
-
-  // ----------------------------------------------------------
-  // Extract numeric and missing values
-  // ----------------------------------------------------------
 
   function extractValueTokens(line) {
     const tokens = String(line || "")
@@ -498,7 +559,8 @@ function parseRegionalRows(text) {
         continue;
       }
 
-      const number = parseNumber(token);
+      const number =
+        parseNumber(token);
 
       if (number !== null) {
         values.push(number);
@@ -508,33 +570,44 @@ function parseRegionalRows(text) {
     return values;
   }
 
-  // ----------------------------------------------------------
-  // Save one region
-  // ----------------------------------------------------------
-
-  function saveRegion(regionName, values) {
-    if (!regionName || !Array.isArray(values)) {
+  function saveRegion(
+    regionName,
+    values
+  ) {
+    if (
+      !regionName ||
+      !Array.isArray(values)
+    ) {
       return;
     }
 
-    const finalValues = values.slice(0, 7);
+    const finalValues =
+      values.slice(0, 7);
 
-    while (finalValues.length < 7) {
+    while (
+      finalValues.length < 7
+    ) {
       finalValues.push(null);
     }
 
-    const region = detectRegion(regionName);
+    const region =
+      detectRegion(regionName);
 
     if (!region) {
-      console.warn(`[MOA] Region not matched: ${regionName}`);
+      console.warn(
+        `[MOA] Region not matched: ${regionName}`
+      );
 
       return;
     }
 
-    // Prevent duplicate regions
-    const alreadyExists = records.some(
-      (item) => item.region && item.region.regionId === region.regionId,
-    );
+    const alreadyExists =
+      records.some(
+        (item) =>
+          item.region &&
+          item.region.regionId ===
+            region.regionId
+      );
 
     if (alreadyExists) {
       return;
@@ -546,24 +619,37 @@ function parseRegionalRows(text) {
     });
   }
 
-  // ----------------------------------------------------------
-  // Check whether line is a table header
-  // ----------------------------------------------------------
-
   function isLikelyHeader(line) {
-    const normalized = normalizeText(line);
+    const normalized =
+      normalizeText(line);
 
     return (
       normalized === "region" ||
       normalized === "week" ||
-      normalized.includes("regional weekly average") ||
-      normalized.includes("mahindi") ||
-      normalized.includes("mchele") ||
-      normalized.includes("maharage") ||
-      normalized.includes("mtama") ||
-      normalized.includes("uwele") ||
-      normalized.includes("ulezi") ||
-      normalized.includes("round potato")
+      normalized.includes(
+        "regional weekly average"
+      ) ||
+      normalized.includes(
+        "mahindi"
+      ) ||
+      normalized.includes(
+        "mchele"
+      ) ||
+      normalized.includes(
+        "maharage"
+      ) ||
+      normalized.includes(
+        "mtama"
+      ) ||
+      normalized.includes(
+        "uwele"
+      ) ||
+      normalized.includes(
+        "ulezi"
+      ) ||
+      normalized.includes(
+        "round potato"
+      )
     );
   }
 
@@ -571,18 +657,27 @@ function parseRegionalRows(text) {
   // MAIN LOOP
   // ==========================================================
 
-  for (let i = 0; i < lines.length; i++) {
+  for (
+    let i = 0;
+    i < lines.length;
+    i++
+  ) {
     const line = lines[i];
 
-    const normalized = normalizeText(line);
+    const normalized =
+      normalizeText(line);
 
     // --------------------------------------------------------
     // START TABLE 2
     // --------------------------------------------------------
 
     if (
-      normalized.includes("table 2:") &&
-      normalized.includes("regional weekly average")
+      normalized.includes(
+        "table 2:"
+      ) &&
+      normalized.includes(
+        "regional weekly average"
+      )
     ) {
       insideTable = true;
 
@@ -594,10 +689,13 @@ function parseRegionalRows(text) {
     }
 
     // --------------------------------------------------------
-    // STOP AT TABLE 3
+    // STOP WHEN ALL 20 REGIONS ARE FOUND
     // --------------------------------------------------------
 
-    if (records.length >= regionNames.length) {
+    if (
+      records.length >=
+      regionNames.length
+    ) {
       break;
     }
 
@@ -606,37 +704,45 @@ function parseRegionalRows(text) {
     // --------------------------------------------------------
 
     if (pendingRegion) {
-      const nextRegion = findRegionInLine(line);
-
-      /*
-        If another region appears before
-        we have collected seven values,
-        save current region and process
-        the new region.
-      */
+      const nextRegion =
+        findRegionInLine(line);
 
       if (
         nextRegion &&
-        normalizeText(nextRegion) !== normalizeText(pendingRegion)
+        normalizeText(nextRegion) !==
+          normalizeText(
+            pendingRegion
+          )
       ) {
-        saveRegion(pendingRegion, pendingValues);
+        saveRegion(
+          pendingRegion,
+          pendingValues
+        );
 
         pendingRegion = null;
         pendingValues = [];
-
-        // Do not continue.
-        // Process this line as new region.
       } else {
         if (!isLikelyHeader(line)) {
-          const values = extractValueTokens(line);
+          const values =
+            extractValueTokens(
+              line
+            );
 
           if (values.length > 0) {
-            pendingValues.push(...values);
+            pendingValues.push(
+              ...values
+            );
           }
         }
 
-        if (pendingValues.length >= 7) {
-          saveRegion(pendingRegion, pendingValues);
+        if (
+          pendingValues.length >=
+          7
+        ) {
+          saveRegion(
+            pendingRegion,
+            pendingValues
+          );
 
           pendingRegion = null;
           pendingValues = [];
@@ -650,77 +756,126 @@ function parseRegionalRows(text) {
     // FIND REGION
     // --------------------------------------------------------
 
-    const regionName = findRegionInLine(line);
+    const regionName =
+      findRegionInLine(line);
 
     if (!regionName) {
       continue;
     }
 
-    const normalizedRegion = normalizeText(regionName);
+    const normalizedRegion =
+      normalizeText(
+        regionName
+      );
 
     // --------------------------------------------------------
-    // Remove region + current
+    // REMOVE REGION + CURRENT
     // --------------------------------------------------------
 
-    const regionCurrentRegex = new RegExp(
-      `^${normalizedRegion.replace(
-        /[.*+?^${}()|[\]\\]/g,
-        "\\$&",
-      )}\\s+current\\s*`,
-      "i",
-    );
+    const regionCurrentRegex =
+      new RegExp(
+        `^${normalizedRegion.replace(
+          /[.*+?^${}()|[\]\\]/g,
+          "\\$&"
+        )}\\s+current\\s*`,
+        "i"
+      );
 
-    let valueText = line.replace(regionCurrentRegex, "").trim();
+    let valueText =
+      line
+        .replace(
+          regionCurrentRegex,
+          ""
+        )
+        .trim();
 
-    // If only region remains
-    if (normalizeText(valueText) === normalizedRegion) {
+    if (
+      normalizeText(valueText) ===
+      normalizedRegion
+    ) {
       valueText = "";
     }
 
     // --------------------------------------------------------
-    // Fallback:
-    // Find "current" manually
+    // FALLBACK:
+    // FIND CURRENT MANUALLY
     // --------------------------------------------------------
 
-    if (!valueText && normalized.includes("current")) {
-      const currentIndex = normalized.indexOf("current");
+    if (
+      !valueText &&
+      normalized.includes("current")
+    ) {
+      const currentIndex =
+        normalized.indexOf(
+          "current"
+        );
 
-      const currentPrefix = line.substring(0, currentIndex);
+      const currentPrefix =
+        line.substring(
+          0,
+          currentIndex
+        );
 
-      if (normalizeText(currentPrefix).includes(normalizedRegion)) {
-        valueText = line.substring(currentIndex + "current".length).trim();
+      if (
+        normalizeText(
+          currentPrefix
+        ).includes(
+          normalizedRegion
+        )
+      ) {
+        valueText =
+          line
+            .substring(
+              currentIndex +
+                "current".length
+            )
+            .trim();
       }
     }
 
     // --------------------------------------------------------
-    // Extract values from same line
+    // EXTRACT VALUES FROM SAME LINE
     // --------------------------------------------------------
 
-    let values = extractValueTokens(valueText);
+    let values =
+      extractValueTokens(
+        valueText
+      );
 
     // --------------------------------------------------------
     // CASE 1:
-    // Region + all values same line
+    // REGION + ALL VALUES SAME LINE
     // --------------------------------------------------------
 
     if (values.length >= 7) {
-      saveRegion(regionName, values);
+      saveRegion(
+        regionName,
+        values
+      );
 
       continue;
     }
 
     // --------------------------------------------------------
     // CASE 2:
-    // Region on one line,
-    // prices on following lines
+    // REGION ON ONE LINE
+    // PRICES ON FOLLOWING LINES
     // --------------------------------------------------------
 
-    pendingRegion = regionName;
+    pendingRegion =
+      regionName;
 
-    pendingValues = values;
+    pendingValues =
+      values;
 
-    if (pendingValues.length >= 7) {
-      saveRegion(pendingRegion, pendingValues);
+    if (
+      pendingValues.length >=
+      7
+    ) {
+      saveRegion(
+        pendingRegion,
+        pendingValues
+      );
 
       pendingRegion = null;
       pendingValues = [];
@@ -731,18 +886,636 @@ function parseRegionalRows(text) {
   // SAVE LAST PENDING REGION
   // ----------------------------------------------------------
 
-  if (pendingRegion && pendingValues.length > 0) {
-    saveRegion(pendingRegion, pendingValues);
+  if (
+    pendingRegion &&
+    pendingValues.length > 0
+  ) {
+    saveRegion(
+      pendingRegion,
+      pendingValues
+    );
   }
 
   return records;
 }
 
 // ============================================================
+// HORTICULTURE CROP DEFINITIONS
+// ============================================================
+
+const MOA_HORTICULTURE_CROPS = [
+  {
+    cropId: "vitunguu maji",
+    aliases: [
+      "onions",
+      "onion",
+      "bulb onions",
+      "bulb onion",
+      "vitunguu",
+    ],
+  },
+
+  {
+    cropId: "kitunguu saumu",
+    aliases: [
+      "garlic",
+      "kitunguu saumu",
+    ],
+  },
+
+  {
+    cropId: "nyanya",
+    aliases: [
+      "tomato",
+      "tomatoes",
+      "nyanya",
+    ],
+  },
+
+  {
+    cropId: "viazi mbatata",
+    aliases: [
+      "irish potatoes",
+      "irish potato",
+      "round potatoes",
+      "round potato",
+      "potatoes",
+      "potato",
+      "viazi mviringo",
+      "viazi mbatata",
+    ],
+  },
+
+  {
+    cropId: "pesheni",
+    aliases: [
+      "passion",
+      "passion fruit",
+      "passion fruits",
+      "pesheni",
+    ],
+  },
+
+  {
+    cropId: "parachichi",
+    aliases: [
+      "avocado",
+      "avocado local",
+      "avocados",
+      "parachichi",
+    ],
+  },
+
+  {
+    cropId: "tikiti maji",
+    aliases: [
+      "watermelon",
+      "watermelons",
+      "tikiti maji",
+    ],
+  },
+
+  {
+    cropId: "pilipili hoho",
+    aliases: [
+      "green pepper",
+      "green peppers",
+      "sweet pepper",
+      "sweet peppers",
+      "pilipili hoho",
+    ],
+  },
+
+  {
+    cropId: "karoti",
+    aliases: [
+      "carrot",
+      "carrots",
+      "kaloti",
+      "karoti",
+    ],
+  },
+
+  {
+    cropId: "tango",
+    aliases: [
+      "cucumber",
+      "cucumbers",
+      "tango",
+    ],
+  },
+];
+
+function getMoaHorticultureCrop(
+  value
+) {
+  const normalized =
+    normalizeText(value);
+
+  for (
+    const item of
+      MOA_HORTICULTURE_CROPS
+  ) {
+    if (
+      item.aliases.some(
+        (alias) =>
+          normalizeText(
+            alias
+          ) === normalized
+      )
+    ) {
+      const masterCrop =
+        getCropById(
+          item.cropId
+        );
+
+      if (!masterCrop) {
+        return null;
+      }
+
+      return {
+        cropId:
+          masterCrop.cropId ||
+          item.cropId,
+
+        cropName:
+          masterCrop.cropName ||
+          item.cropId,
+      };
+    }
+  }
+
+  return null;
+}
+
+// ============================================================
+// HORTICULTURE PRICE TABLE PARSER
+// ============================================================
+
+function parseHorticultureRows(
+  text
+) {
+  const lines =
+    String(text || "")
+      .split("\n")
+      .map((line) =>
+        cleanText(line)
+      )
+      .filter(Boolean);
+
+  const records = [];
+
+  let insideHorticultureTable =
+    false;
+
+  let pendingRegion = null;
+
+  let pendingValues = [];
+
+  const regionNames = [
+    "Dar es Salaam",
+    "Kilimanjaro",
+    "Shinyanga",
+    "Morogoro",
+    "Dodoma",
+    "Arusha",
+    "Lindi",
+    "Tanga",
+    "Iringa",
+    "Ruvuma",
+    "Tabora",
+    "Rukwa",
+    "Kigoma",
+    "Mwanza",
+    "Mara",
+    "Manyara",
+    "Njombe",
+    "Mbeya",
+    "Geita",
+    "Simiyu",
+  ].sort(
+    (a, b) =>
+      b.length - a.length
+  );
+
+  // ==========================================================
+  // IMPORTANT:
+  // This is the order used by the MOA horticulture
+  // regional price table.
+  // ==========================================================
+
+  const columnOrder = [
+    "vitunguu maji",
+    "kitunguu saumu",
+    "nyanya",
+    "viazi mbatata",
+    "pesheni",
+    "parachichi",
+    "tikiti maji",
+    "pilipili hoho",
+    "karoti",
+    "tango",
+  ];
+
+  function findRegion(line) {
+    const normalizedLine =
+      normalizeText(line);
+
+    for (
+      const regionName of
+        regionNames
+    ) {
+      if (
+        normalizedLine.includes(
+          normalizeText(
+            regionName
+          )
+        )
+      ) {
+        return regionName;
+      }
+    }
+
+    return null;
+  }
+
+  function extractPriceValues(
+    valueText
+  ) {
+    const tokens =
+      String(valueText || "")
+        .replace(/,/g, "")
+        .split(/\s+/)
+        .filter(Boolean);
+
+    const values = [];
+
+    for (
+      const token of tokens
+    ) {
+      if (isMissing(token)) {
+        values.push(null);
+        continue;
+      }
+
+      const value =
+        parseNumber(token);
+
+      if (value !== null) {
+        values.push(value);
+      }
+    }
+
+    return values;
+  }
+
+  function saveHorticultureRow(
+    regionName,
+    values
+  ) {
+    if (
+      !regionName ||
+      !Array.isArray(values)
+    ) {
+      return;
+    }
+
+    const region =
+      detectRegion(
+        regionName
+      );
+
+    if (!region) {
+      return;
+    }
+
+    for (
+      let i = 0;
+      i <
+        Math.min(
+          values.length,
+          columnOrder.length
+        );
+      i++
+    ) {
+      const price =
+        values[i];
+
+      if (
+        price === null ||
+        price === undefined ||
+        !Number.isFinite(
+          Number(price)
+        ) ||
+        Number(price) <= 0
+      ) {
+        continue;
+      }
+
+      const crop =
+        getMoaHorticultureCrop(
+          columnOrder[i]
+        );
+
+      if (!crop) {
+        continue;
+      }
+
+      records.push({
+        crop,
+
+        region,
+
+        price:
+          Number(price),
+      });
+    }
+  }
+
+  function isHorticulturePriceHeading(
+    line
+  ) {
+    const normalized =
+      normalizeText(line);
+
+    const hasHorticulture =
+      normalized.includes(
+        "horticultural"
+      ) ||
+      normalized.includes(
+        "horticulture"
+      );
+
+    const hasPrice =
+      normalized.includes(
+        "price"
+      ) ||
+      normalized.includes(
+        "prices"
+      ) ||
+      normalized.includes(
+        "market"
+      );
+
+    return (
+      hasHorticulture &&
+      hasPrice
+    );
+  }
+
+  function isTableHeading(
+    line
+  ) {
+    return /^table\s+\d+\s*:/i.test(
+      String(line || "")
+    );
+  }
+
+  function valuesAfterCurrent(
+    line
+  ) {
+    const normalized =
+      normalizeText(line);
+
+    const index =
+      normalized.indexOf(
+        "current"
+      );
+
+    if (index === -1) {
+      return [];
+    }
+
+    const valueText =
+      String(line)
+        .substring(
+          index +
+            "current".length
+        )
+        .trim();
+
+    return extractPriceValues(
+      valueText
+    );
+  }
+
+  // ==========================================================
+  // MAIN HORTICULTURE LOOP
+  // ==========================================================
+
+  for (
+    let i = 0;
+    i < lines.length;
+    i++
+  ) {
+    const line =
+      lines[i];
+
+    const normalized =
+      normalizeText(line);
+
+    // --------------------------------------------------------
+    // FIND HORTICULTURE PRICE TABLE
+    // --------------------------------------------------------
+
+    if (
+      !insideHorticultureTable
+    ) {
+      if (
+        isHorticulturePriceHeading(
+          line
+        )
+      ) {
+        insideHorticultureTable =
+          true;
+
+        console.log(
+          "[MOA] Horticulture price table detected."
+        );
+      }
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // STOP AT NEXT TABLE
+    // --------------------------------------------------------
+
+    if (
+      isTableHeading(line) &&
+      !isHorticulturePriceHeading(
+        line
+      )
+    ) {
+      break;
+    }
+
+    const regionName =
+      findRegion(line);
+
+    // --------------------------------------------------------
+    // CASE 1:
+    // REGION + CURRENT + PRICES SAME LINE
+    // --------------------------------------------------------
+
+    if (
+      regionName &&
+      normalized.includes(
+        "current"
+      )
+    ) {
+      const values =
+        valuesAfterCurrent(
+          line
+        );
+
+      if (
+        values.length > 0
+      ) {
+        saveHorticultureRow(
+          regionName,
+          values
+        );
+
+        pendingRegion = null;
+
+        pendingValues = [];
+      } else {
+        pendingRegion =
+          regionName;
+
+        pendingValues = [];
+      }
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // CASE 2:
+    // REGION FIRST
+    // CURRENT/PRICES LATER
+    // --------------------------------------------------------
+
+    if (regionName) {
+      pendingRegion =
+        regionName;
+
+      pendingValues = [];
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // CURRENT ON NEXT LINE
+    // --------------------------------------------------------
+
+    if (
+      pendingRegion &&
+      normalized.includes(
+        "current"
+      )
+    ) {
+      const values =
+        valuesAfterCurrent(
+          line
+        );
+
+      if (
+        values.length > 0
+      ) {
+        saveHorticultureRow(
+          pendingRegion,
+          values
+        );
+
+        pendingRegion = null;
+
+        pendingValues = [];
+      }
+
+      continue;
+    }
+
+    // --------------------------------------------------------
+    // PRICES AFTER CURRENT
+    // --------------------------------------------------------
+
+    if (pendingRegion) {
+      const values =
+        extractPriceValues(
+          line
+        );
+
+      if (
+        values.length > 0
+      ) {
+        pendingValues.push(
+          ...values
+        );
+
+        if (
+          pendingValues.length >=
+          columnOrder.length
+        ) {
+          saveHorticultureRow(
+            pendingRegion,
+            pendingValues
+          );
+
+          pendingRegion = null;
+
+          pendingValues = [];
+        }
+      }
+    }
+  }
+
+  // ==========================================================
+  // REMOVE DUPLICATES
+  // ==========================================================
+
+  const unique =
+    new Map();
+
+  for (
+    const record of records
+  ) {
+    const key = [
+      record.crop.cropId,
+      record.region.regionId,
+    ].join("|");
+
+    if (
+      !unique.has(key)
+    ) {
+      unique.set(
+        key,
+        record
+      );
+    }
+  }
+
+  const finalRecords =
+    [...unique.values()];
+
+  console.log(
+    `[MOA] Horticulture rows: ${finalRecords.length}`
+  );
+
+  return finalRecords;
+}
+
+// ============================================================
 // CREATE PRICE RECORD
 // ============================================================
 
-function createPriceRecord({ crop, region, price, dataDate, sourceUrl }) {
+function createPriceRecord({
+  crop,
+  region,
+  price,
+  dataDate,
+  sourceUrl,
+}) {
   if (!crop) {
     return null;
   }
@@ -754,40 +1527,59 @@ function createPriceRecord({ crop, region, price, dataDate, sourceUrl }) {
   if (
     price === null ||
     price === undefined ||
-    !Number.isFinite(Number(price)) ||
+    !Number.isFinite(
+      Number(price)
+    ) ||
     Number(price) <= 0
   ) {
     return null;
   }
 
   return {
-    source: SOURCE_NAME,
+    source:
+      SOURCE_NAME,
 
-    cropId: crop.cropId,
+    cropId:
+      crop.cropId,
 
-    cropName: crop.cropName,
+    cropName:
+      crop.cropName,
 
-    regionId: region.regionId,
+    regionId:
+      region.regionId,
 
-    regionName: region.regionName,
+    regionName:
+      region.regionName,
 
-    market: null,
+    market:
+      null,
 
-    price: Number(price),
+    price:
+      Number(price),
 
-    minPrice: Number(price),
+    minPrice:
+      Number(price),
 
-    maxPrice: Number(price),
+    maxPrice:
+      Number(price),
 
-    unit: normalizeUnitName("kg"),
+    unit:
+      normalizeUnitName(
+        "kg"
+      ),
 
-    priceType: "wholesale_average",
+    priceType:
+      "wholesale_average",
 
-    dataDate: dataDate,
+    dataDate:
+      dataDate,
 
-    sourceUrl: sourceUrl || MOA_PRICE_PAGE,
+    sourceUrl:
+      sourceUrl ||
+      MOA_PRICE_PAGE,
 
-    updatedAt: new Date().toISOString(),
+    updatedAt:
+      new Date().toISOString(),
   };
 }
 
@@ -795,65 +1587,192 @@ function createPriceRecord({ crop, region, price, dataDate, sourceUrl }) {
 // PARSE MOA PDF
 // ============================================================
 
-function parseMoaPdf({ text, pdfUrl }) {
-  const dataDate = extractReportDate(text);
+function parseMoaPdf({
+  text,
+  pdfUrl,
+}) {
+  const dataDate =
+    extractReportDate(
+      text
+    );
 
   if (!dataDate) {
-    throw new Error("MOA report date haikuweza kutambuliwa.");
+    throw new Error(
+      "MOA report date haikuweza kutambuliwa."
+    );
   }
 
-  const regionalRows = parseRegionalRows(text);
+  // ==========================================================
+  // 1. FOOD CROP REGIONAL TABLE
+  // ==========================================================
+
+  const regionalRows =
+    parseRegionalRows(
+      text
+    );
+
+  // ==========================================================
+  // 2. HORTICULTURE PRICE TABLE
+  // ==========================================================
+
+  const horticultureRows =
+    parseHorticultureRows(
+      text
+    );
 
   const records = [];
 
-  for (const row of regionalRows) {
-    for (let i = 0; i < 7; i++) {
-      const price = row.values[i];
+  // ==========================================================
+  // 3. FOOD CROPS
+  // ==========================================================
+
+  for (
+    const row of regionalRows
+  ) {
+    for (
+      let i = 0;
+      i < 7;
+      i++
+    ) {
+      const price =
+        row.values[i];
 
       // "-" means no data.
       // Never fabricate a price.
-      if (price === null) {
+      if (
+        price === null
+      ) {
         continue;
       }
 
-      const crop = getMoaCrop(i);
+      const crop =
+        getMoaCrop(i);
 
       if (!crop) {
         continue;
       }
 
-      const record = createPriceRecord({
-        crop,
+      const record =
+        createPriceRecord({
+          crop,
 
-        region: row.region,
+          region:
+            row.region,
 
-        price,
+          price,
 
-        dataDate,
+          dataDate,
 
-        sourceUrl: pdfUrl,
-      });
+          sourceUrl:
+            pdfUrl,
+        });
 
       if (record) {
-        records.push(record);
+        records.push(
+          record
+        );
       }
     }
   }
 
+  // ==========================================================
+  // 4. HORTICULTURE CROPS
+  // ==========================================================
+
+  for (
+    const row of
+      horticultureRows
+  ) {
+    const record =
+      createPriceRecord({
+        crop:
+          row.crop,
+
+        region:
+          row.region,
+
+        price:
+          row.price,
+
+        dataDate,
+
+        sourceUrl:
+          pdfUrl,
+      });
+
+    if (record) {
+      records.push(
+        record
+      );
+    }
+  }
+
+  // ==========================================================
+  // 5. REMOVE DUPLICATES
+  // ==========================================================
+
+  const uniqueRecords =
+    new Map();
+
+  for (
+    const record of
+      records
+  ) {
+    const key = [
+      record.cropId,
+      record.regionId,
+      record.dataDate,
+      record.market || "",
+    ]
+      .map(
+        (value) =>
+          String(
+            value || ""
+          )
+            .trim()
+            .toLowerCase()
+      )
+      .join("|");
+
+    if (
+      !uniqueRecords.has(
+        key
+      )
+    ) {
+      uniqueRecords.set(
+        key,
+        record
+      );
+    }
+  }
+
+  const finalRecords =
+    [
+      ...uniqueRecords.values(),
+    ];
+
   return {
     success: true,
 
-    source: SOURCE_NAME,
+    source:
+      SOURCE_NAME,
 
-    sourceUrl: pdfUrl,
+    sourceUrl:
+      pdfUrl,
 
     dataDate,
 
-    records,
+    records:
+      finalRecords,
 
-    regionalRowCount: regionalRows.length,
+    regionalRowCount:
+      regionalRows.length,
 
-    recordCount: records.length,
+    horticultureRowCount:
+      horticultureRows.length,
+
+    recordCount:
+      finalRecords.length,
   };
 }
 
@@ -861,21 +1780,29 @@ function parseMoaPdf({ text, pdfUrl }) {
 // MAIN FETCH FUNCTION
 // ============================================================
 
-async function fetchMoaPrices(options = {}) {
-  console.log("[MOA] Starting MOA price fetch...");
+async function fetchMoaPrices(
+  options = {}
+) {
+  console.log(
+    "[MOA] Starting MOA price fetch..."
+  );
 
   // ----------------------------------------------------------
   // 1. Try configured PDF first
   // ----------------------------------------------------------
 
-  let pdfUrl = options.pdfUrl || process.env.MOA_PDF_URL || null;
+  let pdfUrl =
+    options.pdfUrl ||
+    process.env.MOA_PDF_URL ||
+    null;
 
   // ----------------------------------------------------------
   // 2. Discover latest official PDF
   // ----------------------------------------------------------
 
   if (!pdfUrl) {
-    pdfUrl = await findLatestPdfUrl();
+    pdfUrl =
+      await findLatestPdfUrl();
   }
 
   // ----------------------------------------------------------
@@ -883,37 +1810,57 @@ async function fetchMoaPrices(options = {}) {
   // ----------------------------------------------------------
 
   if (!pdfUrl) {
-    pdfUrl = DEFAULT_PDF_URL;
+    pdfUrl =
+      DEFAULT_PDF_URL;
   }
 
-  console.log(`[MOA] PDF: ${pdfUrl}`);
+  console.log(
+    `[MOA] PDF: ${pdfUrl}`
+  );
 
   // ----------------------------------------------------------
   // 4. Download PDF
   // ----------------------------------------------------------
 
-  const buffer = await downloadPdf(pdfUrl);
+  const buffer =
+    await downloadPdf(
+      pdfUrl
+    );
 
   // ----------------------------------------------------------
   // 5. Extract text
   // ----------------------------------------------------------
 
-  const text = await extractPdfText(buffer);
+  const text =
+    await extractPdfText(
+      buffer
+    );
 
   // ----------------------------------------------------------
   // 6. Parse
   // ----------------------------------------------------------
 
-  const result = parseMoaPdf({
-    text,
-    pdfUrl,
-  });
+  const result =
+    parseMoaPdf({
+      text,
+      pdfUrl,
+    });
 
-  console.log(`[MOA] Report date: ${result.dataDate}`);
+  console.log(
+    `[MOA] Report date: ${result.dataDate}`
+  );
 
-  console.log(`[MOA] Regional rows: ${result.regionalRowCount}`);
+  console.log(
+    `[MOA] Regional rows: ${result.regionalRowCount}`
+  );
 
-  console.log(`[MOA] Price records: ${result.recordCount}`);
+  console.log(
+    `[MOA] Horticulture rows: ${result.horticultureRowCount}`
+  );
+
+  console.log(
+    `[MOA] Price records: ${result.recordCount}`
+  );
 
   return result;
 }
@@ -924,11 +1871,18 @@ async function fetchMoaPrices(options = {}) {
 
 module.exports = {
   SOURCE_NAME,
+
   MOA_PRICE_PAGE,
+
   DEFAULT_PDF_URL,
 
   fetchMoaPrices,
+
   findLatestPdfUrl,
+
   extractReportDate,
+
   parseMoaPdf,
+
+  parseHorticultureRows,
 };

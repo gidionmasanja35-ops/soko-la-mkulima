@@ -40,11 +40,12 @@ module.exports = function (pool) {
 
     const intervalId = setInterval(async () => {
       try {
-        const [mCheck, pCheck, bCheck, wCheck] = await Promise.all([
+        const [mCheck, pCheck, bCheck, wCheck, wnCheck] = await Promise.all([
           q("SELECT MAX(tarehe) as last_date FROM matangazo"),
           q("SELECT MAX(tarehe) as last_date FROM purchase_requests"),
           q("SELECT MAX(tarehe) as last_date FROM buyer_requests"),
           q("SELECT MAX(tarehe) as last_date FROM wakulima"),
+          q("SELECT MAX(tarehe) as last_date FROM wanunuzi"),
         ]);
 
         const latestDates = [
@@ -52,6 +53,7 @@ module.exports = function (pool) {
           pCheck.rows[0]?.last_date,
           bCheck.rows[0]?.last_date,
           wCheck.rows[0]?.last_date,
+          wnCheck.rows[0]?.last_date,
         ].filter(Boolean);
 
         const hasUpdate = latestDates.some((d) => new Date(d) > lastCheck);
