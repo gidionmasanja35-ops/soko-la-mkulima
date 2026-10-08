@@ -1506,23 +1506,25 @@ app.get("/mkulima/:simu", async (req, res) => {
 // =====================================================
 
 // ROUTE YA KUTUMA CODE YA UHAKIKI (OTP)
-app.post("/api/send-otp", async (req, res) => {
-  const { email, code } = req.body;
 
-  if (
-    typeof email !== "string" ||
-    !email.trim() ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-    !/^\d{6}$/.test(String(code || ""))
-  ) {
+app.post("/api/send-otp", async (req, res) => {
+  const email =
+    typeof req.body.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({
       success: false,
-      error: "Email sahihi na code ya tarakimu 6 vinahitajika.",
+      error: "Tafadhali weka email sahihi.",
     });
   }
 
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.error("EMAIL_USER au EMAIL_PASS haijawekwa.");
+  if (
+    !process.env.EMAIL_USER ||
+    !process.env.EMAIL_PASS ||
+    !process.env.OTP_SECRET
+  ) {
     return res.status(500).json({
       success: false,
       error: "Email service haijawekwa vizuri.",
@@ -1530,6 +1532,29 @@ app.post("/api/send-otp", async (req, res) => {
   }
 
   try {
+    // OTP ya tarakimu 6, inazalishwa na server.
+    const code = crypto.randomInt(100000, 1000000).toString();
+
+    const codeHash = crypto
+      .createHash("sha256")
+      .update(`${email}:${code}:${process.env.OTP_SECRET}`)
+      .digest("hex");
+
+    // OTP mpya inafuta verification ya awali kwa email hii.
+    await pool.query(
+      `INSERT INTO email_otps
+         (email, code_hash, expires_at, attempts, verified_at, created_at)
+       VALUES ($1, $2, NOW() + INTERVAL '10 minutes', 0, NULL, NOW())
+       ON CONFLICT (email)
+       DO UPDATE SET
+         code_hash = EXCLUDED.code_hash,
+         expires_at = EXCLUDED.expires_at,
+         attempts = 0,
+         verified_at = NULL,
+         created_at = NOW()`,
+      [email, codeHash]
+    );
+
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
@@ -1544,33 +1569,41 @@ app.post("/api/send-otp", async (req, res) => {
       socketTimeout: 30000,
     });
 
-    await transporter.sendMail({
-      from: `"Soko la Mkulima" <${process.env.EMAIL_USER}>`,
-      to: email.trim(),
-      subject: "Code Yako ya Uhakiki — Soko la Mkulima",
-      text: `Code yako ya kuthibitisha barua pepe ni ${code}.`,
-      html: `
-        <div style="font-family:Arial,sans-serif;padding:24px">
-          <h2 style="color:#1B6B35">🌿 Soko la Mkulima</h2>
-          <p>Code yako ya kuthibitisha barua pepe ni:</p>
-          <div style="background:#1B6B35;color:white;padding:14px;
-                      font-size:28px;font-weight:bold;letter-spacing:6px;
-                      display:inline-block;border-radius:8px">
-            ${code}
+    try {
+      await transporter.sendMail({
+        from: `"Soko la Mkulima" <${process.env.EMAIL_USER}>`,
+        to: email,
+        subject: "Code Yako ya Uhakiki — Soko la Mkulima",
+        text: `Code yako ya kuthibitisha email ni ${code}. Inaisha baada ya dakika 10.`,
+        html: `
+          <div style="font-family:Arial,sans-serif;padding:24px">
+            <h2 style="color:#1B6B35">Soko la Mkulima</h2>
+            <p>Code yako ya kuthibitisha email ni:</p>
+            <div style="background:#1B6B35;color:white;padding:14px;
+                        font-size:28px;font-weight:bold;letter-spacing:6px;
+                        display:inline-block;border-radius:8px">
+              ${code}
+            </div>
+            <p>Code hii inaisha baada ya dakika 10.</p>
+            <p>Usimpe mtu mwingine code hii.</p>
           </div>
-          <p>Usimpe mtu mwingine code hii.</p>
-        </div>
-      `,
-    });
-
-    console.log(`OTP email imetumwa kwenda: ${email.trim()}`);
+        `,
+      });
+    } catch (mailError) {
+      // Usibakishe OTP inayojulikana kuwa haikutumwa.
+      await pool.query(
+        "DELETE FROM email_otps WHERE email = $1",
+        [email]
+      );
+      throw mailError;
+    }
 
     return res.status(200).json({
       success: true,
       message: "Code ya uhakiki imetumwa kwenye email yako.",
     });
   } catch (err) {
-    console.error("OTP email error:", err.code, err.message);
+    console.error("OTP send error:", err.code, err.message);
 
     return res.status(500).json({
       success: false,
@@ -1579,100 +1612,331 @@ app.post("/api/send-otp", async (req, res) => {
   }
 });
 
+
+
+app.post("/api/verify-otp", async (req, res) => {
+  const email =
+    typeof req.body.email === "string"
+      ? req.body.email.trim().toLowerCase()
+      : "";
+
+  const code =
+    typeof req.body.code === "string"
+      ? req.body.code.trim()
+      : "";
+
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    !/^\d{6}$/.test(code)
+  ) {
+    return res.status(400).json({
+      success: false,
+      error: "Email au code si sahihi.",
+    });
+  }
+
+  if (!process.env.OTP_SECRET) {
+    return res.status(500).json({
+      success: false,
+      error: "OTP service haijawekwa vizuri.",
+    });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT email, code_hash, expires_at, attempts, verified_at
+       FROM email_otps
+       WHERE email = $1`,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Code haipo au imeisha muda. Omba code nyingine.",
+      });
+    }
+
+    const otp = result.rows[0];
+
+    if (otp.verified_at) {
+      return res.status(400).json({
+        success: false,
+        error: "Code hii tayari imetumika. Omba code nyingine.",
+      });
+    }
+
+    if (new Date(otp.expires_at).getTime() <= Date.now()) {
+      await pool.query(
+        "DELETE FROM email_otps WHERE email = $1",
+        [email]
+      );
+
+      return res.status(400).json({
+        success: false,
+        error: "Code imeisha muda. Omba code nyingine.",
+      });
+    }
+
+    if (otp.attempts >= 5) {
+      await pool.query(
+        "DELETE FROM email_otps WHERE email = $1",
+        [email]
+      );
+
+      return res.status(429).json({
+        success: false,
+        error: "Umejaribu mara nyingi. Omba code nyingine.",
+      });
+    }
+
+    const submittedHash = crypto
+      .createHash("sha256")
+      .update(`${email}:${code}:${process.env.OTP_SECRET}`)
+      .digest("hex");
+
+    if (submittedHash !== otp.code_hash) {
+      const updated = await pool.query(
+        `UPDATE email_otps
+         SET attempts = attempts + 1
+         WHERE email = $1
+           AND verified_at IS NULL
+           AND expires_at > NOW()
+           AND attempts < 5
+         RETURNING attempts`,
+        [email]
+      );
+
+      if (updated.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Code imeisha muda au jaribio limezidi.",
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        error: "Code si sahihi. Jaribu tena.",
+      });
+    }
+
+    const verified = await pool.query(
+      `UPDATE email_otps
+       SET verified_at = NOW()
+       WHERE email = $1
+         AND code_hash = $2
+         AND verified_at IS NULL
+         AND expires_at > NOW()
+         AND attempts < 5
+       RETURNING email`,
+      [email, submittedHash]
+    );
+
+    if (verified.rows.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Code haiwezi kutumika. Omba nyingine.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Email imethibitishwa kikamilifu.",
+    });
+  } catch (err) {
+    console.error("OTP verification error:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "Imeshindikana kuthibitisha code kwa sasa.",
+    });
+  }
+});
+
+
 // ============================================================
 // ---- API ROUTES (JSON) - Kwa Flutter App ----
 // ============================================================
 
 // POST /api/wanunuzi/sajili — ROUTE MPYA YA KUSAJILI WANUNUZI
+
+/**
+ * POST /api/wanunuzi/sajili
+ * Sajili au sasisha mnunuzi baada ya kuthibitisha email yake.
+ */
 app.post("/api/wanunuzi/sajili", async (req, res) => {
-  const { jina, mkoa, wilaya, phone_number } = req.body;
+  const { jina, mkoa, wilaya, phone_number, email } = req.body;
 
   try {
-    const cleanPhone = phone_number ? phone_number.toString().trim() : "";
+    // 1. Safisha na kagua taarifa
+    const cleanEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : "";
 
-    if (!cleanPhone || cleanPhone === "N/A" || cleanPhone === "") {
+    const cleanPhone =
+      phone_number != null ? String(phone_number).trim() : "";
+
+    const cleanName =
+      typeof jina === "string" && jina.trim()
+        ? jina.trim()
+        : "Mnunuzi Mpya";
+
+    const cleanMkoa =
+      typeof mkoa === "string" && mkoa.trim()
+        ? mkoa.trim()
+        : "";
+
+    const cleanWilaya =
+      typeof wilaya === "string" && wilaya.trim()
+        ? wilaya.trim()
+        : "";
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: "Email sahihi inahitajika.",
+      });
+    }
+
+    if (!cleanPhone || cleanPhone === "N/A") {
       return res.status(400).json({
         success: false,
         error: "Namba ya simu inahitajika ili kusajili mnunuzi.",
       });
     }
 
-    const cleanName = jina && jina.trim() !== "" ? jina.trim() : "Mnunuzi Mpya";
-    const cleanMkoa = mkoa && mkoa.trim() !== "" ? mkoa.trim() : "Arusha";
-    const cleanWilaya =
-      wilaya && wilaya.trim() !== "" ? wilaya.trim() : "Arusha Mjini"; // default value ili kuzuia NOT NULL error
-
-    // 1. Kagua kama mnunuzi mwenye namba hii yupo tayari
-    const checkUser = await pool.query(
-      "SELECT * FROM wanunuzi WHERE phone_number = $1",
-      [cleanPhone],
-    );
-
-    if (checkUser.rows.length > 0) {
-      // Sasisha taarifa zake
-      const updatedUser = await pool.query(
-        "UPDATE wanunuzi SET jina = $1, mkoa = $2, wilaya = $3 WHERE phone_number = $4 RETURNING *",
-        [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
-      );
-
-      console.log(
-        "ℹ️ Mnunuzi yupo, taarifa zimesasishwa:",
-        updatedUser.rows[0],
-      );
-
-      return res.status(200).json({
-        success: true,
-        message: "Taarifa za mnunuzi zimesasishwa kikamilifu.",
-        data: updatedUser.rows[0],
+    if (!cleanMkoa || !cleanWilaya) {
+      return res.status(400).json({
+        success: false,
+        error: "Mkoa na wilaya vinahitajika.",
       });
     }
 
-    // 2. Ingiza mnunuzi mpya pamoja na wilaya
-    const result = await pool.query(
-      "INSERT INTO wanunuzi (jina, mkoa, wilaya, phone_number, verified, tarehe) VALUES ($1, $2, $3, $4, FALSE, NOW()) RETURNING *",
-      [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
+    // 2. Thibitisha kuwa email ilipata OTP verification.
+    // Verification inakubaliwa kwa dakika 30 baada ya kufanikiwa.
+    const verification = await pool.query(
+      `SELECT email
+       FROM email_otps
+       WHERE email = $1
+         AND verified_at IS NOT NULL
+         AND verified_at > NOW() - INTERVAL '30 minutes'
+         AND expires_at > verified_at`,
+      [cleanEmail]
     );
 
-    console.log("✅ Mnunuzi Mpya Ameingizwa PostgreSQL:", result.rows[0]);
+    if (verification.rows.length === 0) {
+      return res.status(403).json({
+        success: false,
+        error: "Thibitisha email yako kabla ya kusajili mnunuzi.",
+      });
+    }
 
-    res.status(201).json({
+    // 3. Kagua kama mnunuzi mwenye namba hii yupo tayari.
+    const checkUser = await pool.query(
+      `SELECT *
+       FROM wanunuzi
+       WHERE phone_number = $1`,
+      [cleanPhone]
+    );
+
+    let savedUser;
+    let statusCode;
+
+    if (checkUser.rows.length > 0) {
+      // 4. Sasisha taarifa za mnunuzi aliyepo.
+      const updatedUser = await pool.query(
+        `UPDATE wanunuzi
+         SET jina = $1, mkoa = $2, wilaya = $3
+         WHERE phone_number = $4
+         RETURNING *`,
+        [cleanName, cleanMkoa, cleanWilaya, cleanPhone]
+      );
+
+      savedUser = updatedUser.rows[0];
+      statusCode = 200;
+
+      console.log("Mnunuzi amesasishwa:", cleanPhone);
+    } else {
+      // 5. Ingiza mnunuzi mpya.
+      const insertedUser = await pool.query(
+        `INSERT INTO wanunuzi
+           (jina, mkoa, wilaya, phone_number, verified, tarehe)
+         VALUES ($1, $2, $3, $4, FALSE, NOW())
+         RETURNING *`,
+        [cleanName, cleanMkoa, cleanWilaya, cleanPhone]
+      );
+
+      savedUser = insertedUser.rows[0];
+      statusCode = 201;
+
+      console.log("Mnunuzi mpya ameongezwa:", cleanPhone);
+    }
+
+    // 6. Futa OTP baada ya usajili kufanikiwa.
+    await pool.query(
+      `DELETE FROM email_otps
+       WHERE email = $1 AND verified_at IS NOT NULL`,
+      [cleanEmail]
+    );
+
+    return res.status(statusCode).json({
       success: true,
-      message: "Mnunuzi amesajiliwa kikamilifu kwenye PostgreSQL!",
-      data: result.rows[0],
+      message:
+        statusCode === 201
+          ? "Mnunuzi amesajiliwa kikamilifu."
+          : "Taarifa za mnunuzi zimesasishwa kikamilifu.",
+      data: savedUser,
     });
   } catch (err) {
-    console.error("❌ Error inserting buyer to PostgreSQL:", err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error(
+      "Error inserting/updating buyer:",
+      err.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      error: "Imeshindikana kuhifadhi taarifa za mnunuzi.",
+    });
   }
 });
 
-// GET /api/takwimu
+
+/**
+ * GET /api/takwimu
+ * Pata takwimu za mfumo.
+ */
 app.get("/api/takwimu", async (req, res) => {
   try {
-    const wakulima = await pool.query("SELECT COUNT(*) FROM wakulima");
+    const [
+      wakulima,
+      matangazo,
+      mazao,
+      wanunuzi,
+    ] = await Promise.all([
+      pool.query("SELECT COUNT(*) FROM wakulima"),
 
-    const matangazo = await pool.query(
-      "SELECT COUNT(*) FROM matangazo WHERE active = TRUE",
-    );
+      pool.query(
+        "SELECT COUNT(*) FROM matangazo WHERE active = TRUE"
+      ),
 
-    const mazao = await pool.query(
-      "SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE",
-    );
+      pool.query(
+        "SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE"
+      ),
 
-    const wanunuzi = await pool.query("SELECT COUNT(*) FROM wanunuzi");
+      pool.query("SELECT COUNT(*) FROM wanunuzi"),
+    ]);
 
-    res.json({
-      wakulima: parseInt(wakulima.rows[0].count),
-
-      matangazo: parseInt(matangazo.rows[0].count),
-
-      mazao: parseInt(mazao.rows[0].count),
-
-      wanunuzi: parseInt(wanunuzi.rows[0].count),
+    return res.status(200).json({
+      wakulima: Number(wakulima.rows[0].count),
+      matangazo: Number(matangazo.rows[0].count),
+      mazao: Number(mazao.rows[0].count),
+      wanunuzi: Number(wanunuzi.rows[0].count),
     });
   } catch (err) {
-    res.status(500).json({
-      error: err.message,
+    console.error("Error getting statistics:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "Imeshindikana kupata takwimu za mfumo.",
     });
   }
 });
