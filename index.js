@@ -1499,12 +1499,11 @@ app.get("/mkulima/:simu", async (req, res) => {
 // ---- API ROUTES (JSON) - Kwa Flutter App ----
 // ============================================================
 
-// POST /api/wanunuzi/sajili — ROUTE YA KUSAJILI WANUNUZI POSTGRESQL (SUPABASE)
+// POST /api/wanunuzi/sajili — ROUTE MPYA YA KUSAJILI WANUNUZI
 app.post("/api/wanunuzi/sajili", async (req, res) => {
-  const { jina, mkoa, phone_number } = req.body;
+  const { jina, mkoa, wilaya, phone_number } = req.body;
 
   try {
-    // 1. Hakikisha namba ya simu ipo na haina nafasi tupu
     const cleanPhone = phone_number ? phone_number.toString().trim() : "";
 
     if (!cleanPhone || cleanPhone === "N/A" || cleanPhone === "") {
@@ -1515,19 +1514,21 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
     }
 
     const cleanName = jina && jina.trim() !== "" ? jina.trim() : "Mnunuzi Mpya";
-    const cleanMkoa = mkoa && mkoa.trim() !== "" ? mkoa.trim() : "Haianishwa";
+    const cleanMkoa = mkoa && mkoa.trim() !== "" ? mkoa.trim() : "Arusha";
+    const cleanWilaya =
+      wilaya && wilaya.trim() !== "" ? wilaya.trim() : "Arusha Mjini"; // default value ili kuzuia NOT NULL error
 
-    // 2. Kagua kama mnunuzi mwenye namba hii yupo tayari
+    // 1. Kagua kama mnunuzi mwenye namba hii yupo tayari
     const checkUser = await pool.query(
       "SELECT * FROM wanunuzi WHERE phone_number = $1",
       [cleanPhone],
     );
 
     if (checkUser.rows.length > 0) {
-      // Kama yupo, update taarifa zake (Jina na Mkoa) badala ya kumkataa
+      // Sasisha taarifa zake
       const updatedUser = await pool.query(
-        "UPDATE wanunuzi SET jina = $1, mkoa = $2 WHERE phone_number = $3 RETURNING *",
-        [cleanName, cleanMkoa, cleanPhone],
+        "UPDATE wanunuzi SET jina = $1, mkoa = $2, wilaya = $3 WHERE phone_number = $4 RETURNING *",
+        [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
       );
 
       console.log(
@@ -1542,10 +1543,10 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
       });
     }
 
-    // 3. Inserter mnunuzi mpya
+    // 2. Ingiza mnunuzi mpya pamoja na wilaya
     const result = await pool.query(
-      "INSERT INTO wanunuzi (jina, mkoa, phone_number, verified, tarehe) VALUES ($1, $2, $3, FALSE, NOW()) RETURNING *",
-      [cleanName, cleanMkoa, cleanPhone],
+      "INSERT INTO wanunuzi (jina, mkoa, wilaya, phone_number, verified, tarehe) VALUES ($1, $2, $3, $4, FALSE, NOW()) RETURNING *",
+      [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
     );
 
     console.log("✅ Mnunuzi Mpya Ameingizwa PostgreSQL:", result.rows[0]);
