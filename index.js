@@ -6,6 +6,7 @@ const axios = require("axios");
 const express = require("express");
 const { Pool } = require("pg");
 const { GoogleAuth } = require("google-auth-library");
+const nodemailer = require("nodemailer");
 
 // =====================================================
 // AUTOMATIC TANTRADE PRICE SYNC - NEW
@@ -1501,26 +1502,21 @@ const nodemailer = require("nodemailer");
 // =====================================================
 // ROUTE YA KUTUMA CODE YA UHAKIKI (OTP) KWENYE EMAIL
 // =====================================================
-const nodemailer = require("nodemailer");
 
-// ROUTE YA KUTUMA CODE YA UHAKIKI (OTP) - NJIA SALAMA
+// ROUTE YA KUTUMA OTP (Usiweke tena "const nodemailer = ..." hapa chini)
 app.post("/api/send-otp", async (req, res) => {
   const { email, code } = req.body;
-
+  
   if (!email || !code) {
-    return res.status(400).json({
-      success: false,
-      error: "Email na code vinahitajika!",
-    });
+    return res.status(400).json({ success: false, error: "Email na code vinahitajika!" });
   }
 
   try {
-    // Inachukua taarifa kutoka kwenye Environment Variables badala ya kuzianika
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
-        user: process.env.EMAIL_USER, 
-        pass: process.env.EMAIL_PASS, 
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
       },
     });
 
@@ -1529,31 +1525,19 @@ app.post("/api/send-otp", async (req, res) => {
       to: email,
       subject: "Code Yako ya Uhakiki — Soko la Mkulima",
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; max-width: 500px;">
-          <h2 style="color: #1B6B35; margin-bottom: 10px;">🌿 Soko la Mkulima</h2>
-          <p style="font-size: 15px; color: #333;">Habari,</p>
-          <p style="font-size: 15px; color: #333;">Code yako ya kuthibitisha barua pepe ni:</p>
-          <div style="background-color: #1B6B35; color: white; padding: 14px 28px; font-size: 30px; font-weight: bold; letter-spacing: 6px; display: inline-block; border-radius: 8px; margin: 15px 0;">
-            ${code}
-          </div>
-          <p style="font-size: 13px; color: #777;">Usitoe code hii kwa mtu yeyote.</p>
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #1B6B35;">🌿 Soko la Mkulima</h2>
+          <p>Code yako ya kuthibitisha barua pepe ni:</p>
+          <h1 style="background-color: #1B6B35; color: white; padding: 10px 20px; display: inline-block; border-radius: 8px;">${code}</h1>
         </div>
       `,
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`✅ OTP Email imetumwa kwenda: ${email}`);
-
-    res.status(200).json({
-      success: true,
-      message: "Code ya uhakiki imetumwa kwenye email yako!",
-    });
+    res.status(200).json({ success: true, message: "Code imetumwa!" });
   } catch (err) {
     console.error("❌ Hitilafu ya Kutuma Email:", err.message);
-    res.status(500).json({
-      success: false,
-      error: "Imeshindikana kutuma email.",
-    });
+    res.status(500).json({ success: false, error: "Imeshindikana kutuma email." });
   }
 });
 
