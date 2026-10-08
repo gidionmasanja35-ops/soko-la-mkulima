@@ -1499,27 +1499,56 @@ app.get("/mkulima/:simu", async (req, res) => {
 // ---- API ROUTES (JSON) - Kwa Flutter App ----
 // ============================================================
 
-// POST /api/wanunuzi/sajili — ROUTE MPYA YA KUSAJILI WANUNUZI POSTGRESQL (SUPABASE)
+// POST /api/wanunuzi/sajili — ROUTE YA KUSAJILI WANUNUZI POSTGRESQL (SUPABASE)
 app.post("/api/wanunuzi/sajili", async (req, res) => {
   const { jina, mkoa, phone_number } = req.body;
-  try {
-    const checkUser = await pool.query(
-      "SELECT * FROM wanunuzi WHERE phone_number = $1",
-      [phone_number],
-    );
 
-    if (checkUser.rows.length > 0) {
-      return res.status(200).json({
-        success: true,
-        message: "Mnunuzi tayari yupo kwenye database.",
-        data: checkUser.rows[0],
+  try {
+    // 1. Hakikisha namba ya simu ipo na haina nafasi tupu
+    const cleanPhone = phone_number ? phone_number.toString().trim() : "";
+
+    if (!cleanPhone || cleanPhone === "N/A" || cleanPhone === "") {
+      return res.status(400).json({
+        success: false,
+        error: "Namba ya simu inahitajika ili kusajili mnunuzi.",
       });
     }
 
+    const cleanName = jina && jina.trim() !== "" ? jina.trim() : "Mnunuzi Mpya";
+    const cleanMkoa = mkoa && mkoa.trim() !== "" ? mkoa.trim() : "Haianishwa";
+
+    // 2. Kagua kama mnunuzi mwenye namba hii yupo tayari
+    const checkUser = await pool.query(
+      "SELECT * FROM wanunuzi WHERE phone_number = $1",
+      [cleanPhone],
+    );
+
+    if (checkUser.rows.length > 0) {
+      // Kama yupo, update taarifa zake (Jina na Mkoa) badala ya kumkataa
+      const updatedUser = await pool.query(
+        "UPDATE wanunuzi SET jina = $1, mkoa = $2 WHERE phone_number = $3 RETURNING *",
+        [cleanName, cleanMkoa, cleanPhone],
+      );
+
+      console.log(
+        "ℹ️ Mnunuzi yupo, taarifa zimesasishwa:",
+        updatedUser.rows[0],
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Taarifa za mnunuzi zimesasishwa kikamilifu.",
+        data: updatedUser.rows[0],
+      });
+    }
+
+    // 3. Inserter mnunuzi mpya
     const result = await pool.query(
       "INSERT INTO wanunuzi (jina, mkoa, phone_number, verified, tarehe) VALUES ($1, $2, $3, FALSE, NOW()) RETURNING *",
-      [jina || "Mnunuzi Mpya", mkoa || "N/A", phone_number],
+      [cleanName, cleanMkoa, cleanPhone],
     );
+
+    console.log("✅ Mnunuzi Mpya Ameingizwa PostgreSQL:", result.rows[0]);
 
     res.status(201).json({
       success: true,
@@ -1527,7 +1556,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
       data: result.rows[0],
     });
   } catch (err) {
-    console.error("Error inserting buyer to PostgreSQL:", err.message);
+    console.error("❌ Error inserting buyer to PostgreSQL:", err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
