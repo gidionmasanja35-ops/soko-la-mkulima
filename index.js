@@ -8,7 +8,8 @@ const { Pool } = require("pg");
 const { GoogleAuth } = require("google-auth-library");
 const nodemailer = require("nodemailer");
 const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first'); // 👈 HII NDIO YA KUTATUA ENETUNREACH KUDUMU
+dns.setDefaultResultOrder('ipv4first');
+const crypto = require("crypto"); 
 
 
 // =====================================================
@@ -1537,7 +1538,7 @@ if (
 
   try {
     // OTP ya tarakimu 6, inazalishwa na server.
-    const code = randomInt(100000, 1000000).toString();
+    const code = crypto.randomInt(100000, 1000000).toString();
 
     const codeHash = crypto
       .createHash("sha256")
