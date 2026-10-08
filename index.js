@@ -1496,8 +1496,7 @@ app.get("/mkulima/:simu", async (req, res) => {
   }
 });
 
-// Ongeza hii juu kabisa pamoja na require zingine
-const nodemailer = require("nodemailer");
+
 
 // =====================================================
 // ROUTE YA KUTUMA CODE YA UHAKIKI (OTP) KWENYE EMAIL
