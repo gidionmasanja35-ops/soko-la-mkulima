@@ -1522,17 +1522,12 @@ app.post("/api/send-otp", async (req, res) => {
   console.log("EMAIL_PASS exists:", !!process.env.EMAIL_PASS);
   console.log("OTP_SECRET exists:", !!process.env.OTP_SECRET);
 
-  if (
-    !process.env.EMAIL_USER ||
-    !process.env.EMAIL_PASS ||
-    !process.env.OTP_SECRET
-  ) {
+  if (!process.env.RESEND_API_KEY || !process.env.OTP_SECRET) {
     return res.status(500).json({
       success: false,
       error: "Email service haijawekwa vizuri.",
     });
   }
-
   try {
     // OTP ya tarakimu 6, inazalishwa na server.
     const code = crypto.randomInt(100000, 1000000).toString();
@@ -1571,28 +1566,41 @@ app.post("/api/send-otp", async (req, res) => {
     });
 
     try {
-      await transporter.sendMail({
-        from: `"Soko la Mkulima" <${process.env.EMAIL_USER}>`,
-        to: email,
-        subject: "Code Yako ya Uhakiki — Soko la Mkulima",
-        text: `Code yako ya kuthibitisha email ni ${code}. Inaisha baada ya dakika 10.`,
-        html: `
-          <div style="font-family:Arial,sans-serif;padding:24px">
-            <h2 style="color:#1B6B35">Soko la Mkulima</h2>
-            <p>Code yako ya kuthibitisha email ni:</p>
-            <div style="background:#1B6B35;color:white;padding:14px;
-                        font-size:28px;font-weight:bold;letter-spacing:6px;
-                        display:inline-block;border-radius:8px">
-              ${code}
-            </div>
-            <p>Code hii inaisha baada ya dakika 10.</p>
-            <p>Usimpe mtu mwingine code hii.</p>
-          </div>
-        `,
-      });
+      const response = await axios.post(
+        "https://api.resend.com/emails",
+        {
+          from: "Soko la Mkulima <onboarding@resend.dev>",
+          to: [email],
+          subject: "Code Yako ya Uhakiki — Soko la Mkulima",
+          text: `Code yako ya kuthibitisha email ni ${code}. Inaisha baada ya dakika 10.`,
+          html: `
+        <div style="font-family:Arial,sans-serif">
+          <h2>Soko la Mkulima</h2>
+          <p>Code yako ya kuthibitisha email ni:</p>
+          <h1 style="letter-spacing:8px">${code}</h1>
+          <p>Code hii inaisha baada ya dakika 10.</p>
+          <p>Usimpe mtu mwingine code hii.</p>
+        </div>
+      `,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 20000,
+        },
+      );
+
+      console.log("[OTP] Resend response:", response.status, response.data);
     } catch (mailError) {
-      // Usibakishe OTP inayojulikana kuwa haikutumwa.
       await pool.query("DELETE FROM email_otps WHERE email = $1", [email]);
+
+      console.error(
+        "[OTP] Resend error:",
+        mailError.response?.data || mailError.message,
+      );
+
       throw mailError;
     }
 
@@ -1601,7 +1609,7 @@ app.post("/api/send-otp", async (req, res) => {
       message: "Code ya uhakiki imetumwa kwenye email yako.",
     });
   } catch (err) {
-    console.error("OTP send error:", err.code, err.message);
+    console.error("OTP send error:", err.response?.data || err.message);
 
     return res.status(500).json({
       success: false,
