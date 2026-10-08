@@ -542,6 +542,56 @@ app.post("/ussd", async (req, res) => {
           }
         }
       }
+
+      } else if (majibu[0] === "2") {
+      // ==========================================================
+      // 2. TANGAZA MAZAO YAKO
+      // ==========================================================
+
+      // Check kama mkulima amesajiliwa kwanza
+      const mkulimaCheck = await pool.query(
+        "SELECT * FROM wakulima WHERE phone_number = $1",
+        [phoneNumber]
+      );
+
+      if (mkulimaCheck.rows.length === 0) {
+        response = "END Hujasajiliwa bado. Tafadhali jisajili kwanza (Chaguo la 4).";
+      } else {
+        if (majibu.length === 1) {
+          response = "CON Ingiza jina la zao (mfano: Mahindi, Mpunga, Maharage):";
+        } else if (majibu.length === 2) {
+          response = "CON Ingiza idadi ya magunia (mfano: 50):";
+        } else if (majibu.length === 3) {
+          response = "CON Ingiza bei kwa kila gunia kwa TZS (mfano: 80000):";
+        } else if (majibu.length === 4) {
+          const zaoInput = majibu[1].trim().toLowerCase();
+          const idadiInput = parseInt(majibu[2], 10);
+          const beiInput = parseInt(majibu[3], 10);
+
+          if (isNaN(idadiInput) || isNaN(beiInput)) {
+            response = "END Taarifa za idadi au bei si sahihi. Jaribu tena.";
+          } else {
+            const mkoaMkulima = mkulimaCheck.rows[0].mkoa;
+
+            // Hifadhi tangazo kwenye Database (status = 'accepted' au 'pending')
+            await pool.query(
+              "INSERT INTO matangazo (phone_number, zao, idadi, bei, mkoa, status, tarehe) VALUES ($1, $2, $3, $4, $5, 'accepted', NOW())",
+              [phoneNumber, zaoInput, idadiInput, beiInput, mkoaMkulima]
+            );
+
+            // Tuma FCM Notification kwa Wanunuzi wa App
+            tumaNotificationKwaWanunuzi({
+              zao: zaoInput,
+              idadi: idadiInput,
+              bei: beiInput,
+              mkoa: mkoaMkulima,
+            });
+
+            response = `END Tangazo lako la ${capitalize(zaoInput)} (Magunia ${idadiInput} @ TZS ${beiInput.toLocaleString()}) limewekwa kikamilifu!`;
+          }
+        }
+      }
+      
     } else if (majibu[0] === "3") {
       // --- TAZAMA MATANGAZO ---
 
