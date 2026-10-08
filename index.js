@@ -34,7 +34,6 @@ const adminModule = require("./admin");
 app.use("/", adminModule(pool));
 
 // FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
-// FCM V1 NOTIFICATION FUNCTION (Inatuma moja kwa moja kwa Wanunuzi)
 async function tumaNotificationKwaWanunuzi({ zao, idadi, bei, mkoa }) {
   try {
     let credentials;
@@ -172,7 +171,20 @@ async function runStartupMigration() {
     `);
 
     // =====================================================
-    // 3. MATANGAZO
+    // 3. WANUNUZI VERIFICATION & SCHEMA
+    // =====================================================
+    await pool.query(`
+      ALTER TABLE IF EXISTS wanunuzi
+      ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
+    `);
+
+    await pool.query(`
+      ALTER TABLE IF EXISTS wanunuzi
+      ADD COLUMN IF NOT EXISTS tarehe TIMESTAMP DEFAULT NOW();
+    `);
+
+    // =====================================================
+    // 4. MATANGAZO
     // =====================================================
     await pool.query(`
       ALTER TABLE IF EXISTS matangazo
@@ -191,11 +203,8 @@ async function runStartupMigration() {
     `);
 
     // =====================================================
-    // 4. BEI ZA MAZAO
+    // 5. BEI ZA MAZAO
     // =====================================================
-    // Hii ndiyo sehemu mpya kwa ajili ya
-    // automatic government market prices.
-
     await pool.query(`
       ALTER TABLE IF EXISTS bei_mazao
       ADD COLUMN IF NOT EXISTS unit VARCHAR(20) DEFAULT 'kg';
@@ -223,27 +232,21 @@ async function runStartupMigration() {
     `);
 
     // =====================================================
-    // 5. JAZA DATA ZA ZAMANI
+    // 6. JAZA DATA ZA ZAMANI
     // =====================================================
 
-    // Bei zilizokuwepo zamani zilikuwa za kilo,
-    // hivyo tunaziwekea unit = kg.
     await pool.query(`
       UPDATE bei_mazao
       SET unit = 'kg'
       WHERE unit IS NULL;
     `);
 
-    // Records za zamani ziwekwe kama Admin/Manual
-    // kwa sababu hazikutoka kwenye automatic government sync.
     await pool.query(`
       UPDATE bei_mazao
       SET source = 'Manual/Admin'
       WHERE source IS NULL;
     `);
 
-    // Tumia tarehe ya zamani ya record kama data_date
-    // kama data_date haikuwepo.
     await pool.query(`
       UPDATE bei_mazao
       SET data_date = tarehe::date
@@ -251,7 +254,6 @@ async function runStartupMigration() {
         AND tarehe IS NOT NULL;
     `);
 
-    // Hakikisha updated_at ipo kwa records za zamani.
     await pool.query(`
       UPDATE bei_mazao
       SET updated_at = COALESCE(updated_at, tarehe, NOW())
@@ -259,7 +261,7 @@ async function runStartupMigration() {
     `);
 
     console.log("✅ Database schema imekaguliwa vizuri.");
-    console.log("✅ bei_mazao iko tayari kwa automatic price sync.");
+    console.log("✅ bei_mazao na wanunuzi ziko tayari.");
   } catch (error) {
     console.error("❌ Startup migration error:", error.message);
   }
@@ -317,34 +319,6 @@ cron.schedule(
   },
 );
 
-// =====================================================
-// RUN PRICE SYNC AFTER DATABASE STARTUP
-// =====================================================
-
-runStartupMigration()
-  .then(() => {
-    runPriceSync();
-  })
-  .catch((error) => {
-    console.error("❌ Startup/Price Sync error:", error.message);
-  });
-
-// =====================================================
-// DAILY PRICE SYNC - 06:00 TANZANIA TIME
-// =====================================================
-
-cron.schedule(
-  "0 6 * * *",
-  () => {
-    console.log("⏰ 06:00 - Scheduled TanTrade Price Sync inaanza...");
-
-    runPriceSync();
-  },
-  {
-    timezone: "Africa/Dar_es_Salaam",
-  },
-);
-
 app.post("/ussd", async (req, res) => {
   const { sessionId, phoneNumber, text } = req.body;
   const majibu = text ? text.split("*") : [];
@@ -355,249 +329,216 @@ app.post("/ussd", async (req, res) => {
       // HATUA YA 0: Menyu ya juu kabisa
       response = `CON Karibu Soko la Mkulima\n1. Angalia Bei za Zao\n2. Tangaza Mazao Yako\n3. Tazama Matangazo\n4. Jisajili\n5. Maombi ya Ununuzi\n6. Wasifu Wangu\n7. Hali ya Hewa`;
     } else if (majibu[0] === "1") {
-  // ==========================================================
-  // ANGALIA BEI ZA MAZAO
-  // ==========================================================
+      // ==========================================================
+      // ANGALIA BEI ZA MAZAO
+      // ==========================================================
 
-  if (majibu.length === 1) {
-    // --------------------------------------------------------
-    // STEP 1: CHAGUA ZAO
-    // Tunachukua list ya mazao bila kurudia.
-    // --------------------------------------------------------
+      if (majibu.length === 1) {
+        const result = await pool.query(`
+          SELECT zao
+          FROM (
+            SELECT DISTINCT ON (LOWER(TRIM(zao)))
+              zao,
+              data_date,
+              updated_at,
+              id
+            FROM bei_mazao
+            WHERE zao IS NOT NULL
+              AND TRIM(zao) <> ''
+              AND bei IS NOT NULL
+              AND bei > 0
+            ORDER BY
+              LOWER(TRIM(zao)),
+              data_date DESC NULLS LAST,
+              updated_at DESC NULLS LAST,
+              id DESC
+          ) latest
+          ORDER BY LOWER(TRIM(zao))
+        `);
 
-    const result = await pool.query(`
-      SELECT zao
-      FROM (
-        SELECT DISTINCT ON (LOWER(TRIM(zao)))
-          zao,
-          data_date,
-          updated_at,
-          id
-        FROM bei_mazao
-        WHERE zao IS NOT NULL
-          AND TRIM(zao) <> ''
-          AND bei IS NOT NULL
-          AND bei > 0
-        ORDER BY
-          LOWER(TRIM(zao)),
-          data_date DESC NULLS LAST,
-          updated_at DESC NULLS LAST,
-          id DESC
-      ) latest
-      ORDER BY LOWER(TRIM(zao))
-    `);
+        const mazao = result.rows.map((r) => r.zao);
 
-    const mazao = result.rows.map((r) => r.zao);
-
-    if (mazao.length === 0) {
-      response = "END Bei haipatikani kwa sasa.";
-    } else {
-      response =
-        "CON Chagua zao:\n" +
-        mazao
-          .map((z, i) => `${i + 1}. ${capitalize(z)}`)
-          .join("\n");
-    }
-
-  } else if (majibu.length === 2) {
-
-    // --------------------------------------------------------
-    // STEP 2: USER AMECHAGUA ZAO
-    // Onyesha mikoa yenye bei ya latest.
-    // --------------------------------------------------------
-
-    const result = await pool.query(`
-      SELECT zao
-      FROM (
-        SELECT DISTINCT ON (LOWER(TRIM(zao)))
-          zao,
-          data_date,
-          updated_at,
-          id
-        FROM bei_mazao
-        WHERE zao IS NOT NULL
-          AND TRIM(zao) <> ''
-          AND bei IS NOT NULL
-          AND bei > 0
-        ORDER BY
-          LOWER(TRIM(zao)),
-          data_date DESC NULLS LAST,
-          updated_at DESC NULLS LAST,
-          id DESC
-      ) latest
-      ORDER BY LOWER(TRIM(zao))
-    `);
-
-    const mazao = result.rows.map((r) => r.zao);
-
-    const index = parseInt(majibu[1], 10) - 1;
-    const zao = mazao[index];
-
-    if (!zao) {
-      response = "END Chaguo si sahihi. Jaribu tena.";
-    } else {
-
-      const mikoaResult = await pool.query(
-        `
-        SELECT mkoa
-        FROM (
-          SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
-            mkoa,
-            data_date,
-            updated_at,
-            id
-          FROM bei_mazao
-          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
-            AND mkoa IS NOT NULL
-            AND TRIM(mkoa) <> ''
-            AND bei IS NOT NULL
-            AND bei > 0
-          ORDER BY
-            LOWER(TRIM(mkoa)),
-            data_date DESC NULLS LAST,
-            updated_at DESC NULLS LAST,
-            id DESC
-        ) latest
-        ORDER BY LOWER(TRIM(mkoa))
-        `,
-        [zao]
-      );
-
-      const mikoa = mikoaResult.rows.map((r) => r.mkoa);
-
-      if (mikoa.length === 0) {
-        response = `END Bei za ${capitalize(zao)} hazipatikani kwa sasa.`;
-      } else {
-        response =
-          "CON Chagua mkoa:\n" +
-          mikoa
-            .map((m, i) => `${i + 1}. ${m}`)
-            .join("\n");
-      }
-    }
-  }
-
-  } else if (majibu.length === 3) {
-
-    // --------------------------------------------------------
-    // STEP 3: USER AMECHAGUA ZAO + MKOA
-    // Leta bei ya LATEST kwa zao + mkoa.
-    // --------------------------------------------------------
-
-    const zaoResult = await pool.query(`
-      SELECT zao
-      FROM (
-        SELECT DISTINCT ON (LOWER(TRIM(zao)))
-          zao,
-          data_date,
-          updated_at,
-          id
-        FROM bei_mazao
-        WHERE zao IS NOT NULL
-          AND TRIM(zao) <> ''
-          AND bei IS NOT NULL
-          AND bei > 0
-        ORDER BY
-          LOWER(TRIM(zao)),
-          data_date DESC NULLS LAST,
-          updated_at DESC NULLS LAST,
-          id DESC
-      ) latest
-      ORDER BY LOWER(TRIM(zao))
-    `);
-
-    const mazao = zaoResult.rows.map((r) => r.zao);
-
-    const zaoIndex = parseInt(majibu[1], 10) - 1;
-    const zao = mazao[zaoIndex];
-
-    if (!zao) {
-      response = "END Chaguo la zao si sahihi. Jaribu tena.";
-    } else {
-
-      const mikoaResult = await pool.query(
-        `
-        SELECT mkoa
-        FROM (
-          SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
-            mkoa,
-            data_date,
-            updated_at,
-            id
-          FROM bei_mazao
-          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
-            AND mkoa IS NOT NULL
-            AND TRIM(mkoa) <> ''
-            AND bei IS NOT NULL
-            AND bei > 0
-          ORDER BY
-            LOWER(TRIM(mkoa)),
-            data_date DESC NULLS LAST,
-            updated_at DESC NULLS LAST,
-            id DESC
-        ) latest
-        ORDER BY LOWER(TRIM(mkoa))
-        `,
-        [zao]
-      );
-
-      const mikoa = mikoaResult.rows.map((r) => r.mkoa);
-
-      const mkoaIndex = parseInt(majibu[2], 10) - 1;
-      const mkoa = mikoa[mkoaIndex];
-
-      if (!mkoa) {
-        response = "END Chaguo la mkoa si sahihi. Jaribu tena.";
-      } else {
-
-        // ----------------------------------------------------
-        // MUHIMU:
-        // Chukua row MOJA tu ya latest kwa zao + mkoa.
-        // History yote inabaki DB.
-        // ----------------------------------------------------
-
-        const priceResult = await pool.query(
-          `
-          SELECT
-            zao,
-            mkoa,
-            bei,
-            unit,
-            source,
-            data_date,
-            updated_at
-          FROM bei_mazao
-          WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
-            AND LOWER(TRIM(mkoa)) = LOWER(TRIM($2))
-            AND bei IS NOT NULL
-            AND bei > 0
-          ORDER BY
-            data_date DESC NULLS LAST,
-            updated_at DESC NULLS LAST,
-            id DESC
-          LIMIT 1
-          `,
-          [zao, mkoa]
-        );
-
-        const price = priceResult.rows[0];
-
-        if (!price) {
-          response =
-            `END Bei ya ${capitalize(zao)} ` +
-            `mkoa wa ${mkoa} haipatikani kwa sasa.`;
+        if (mazao.length === 0) {
+          response = "END Bei haipatikani kwa sasa.";
         } else {
-
-          const unit = price.unit || "kg";
-
           response =
-            `END Bei ya ${capitalize(price.zao)} ` +
-            `mkoa wa ${price.mkoa} ni ` +
-            `TZS ${Number(price.bei).toLocaleString()} kwa ${unit}.`;
+            "CON Chagua zao:\n" +
+            mazao.map((z, i) => `${i + 1}. ${capitalize(z)}`).join("\n");
+        }
+      } else if (majibu.length === 2) {
+        const result = await pool.query(`
+          SELECT zao
+          FROM (
+            SELECT DISTINCT ON (LOWER(TRIM(zao)))
+              zao,
+              data_date,
+              updated_at,
+              id
+            FROM bei_mazao
+            WHERE zao IS NOT NULL
+              AND TRIM(zao) <> ''
+              AND bei IS NOT NULL
+              AND bei > 0
+            ORDER BY
+              LOWER(TRIM(zao)),
+              data_date DESC NULLS LAST,
+              updated_at DESC NULLS LAST,
+              id DESC
+          ) latest
+          ORDER BY LOWER(TRIM(zao))
+        `);
+
+        const mazao = result.rows.map((r) => r.zao);
+
+        const index = parseInt(majibu[1], 10) - 1;
+        const zao = mazao[index];
+
+        if (!zao) {
+          response = "END Chaguo si sahihi. Jaribu tena.";
+        } else {
+          const mikoaResult = await pool.query(
+            `
+            SELECT mkoa
+            FROM (
+              SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
+                mkoa,
+                data_date,
+                updated_at,
+                id
+              FROM bei_mazao
+              WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+                AND mkoa IS NOT NULL
+                AND TRIM(mkoa) <> ''
+                AND bei IS NOT NULL
+                AND bei > 0
+              ORDER BY
+                LOWER(TRIM(mkoa)),
+                data_date DESC NULLS LAST,
+                updated_at DESC NULLS LAST,
+                id DESC
+            ) latest
+            ORDER BY LOWER(TRIM(mkoa))
+            `,
+            [zao],
+          );
+
+          const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+
+          if (mikoa.length === 0) {
+            response = `END Bei za ${capitalize(zao)} hazipatikani kwa sasa.`;
+          } else {
+            response =
+              "CON Chagua mkoa:\n" +
+              mikoa.map((m, i) => `${i + 1}. ${m}`).join("\n");
+          }
+        }
+      } else if (majibu.length === 3) {
+        const zaoResult = await pool.query(`
+          SELECT zao
+          FROM (
+            SELECT DISTINCT ON (LOWER(TRIM(zao)))
+              zao,
+              data_date,
+              updated_at,
+              id
+            FROM bei_mazao
+            WHERE zao IS NOT NULL
+              AND TRIM(zao) <> ''
+              AND bei IS NOT NULL
+              AND bei > 0
+            ORDER BY
+              LOWER(TRIM(zao)),
+              data_date DESC NULLS LAST,
+              updated_at DESC NULLS LAST,
+              id DESC
+          ) latest
+          ORDER BY LOWER(TRIM(zao))
+        `);
+
+        const mazao = zaoResult.rows.map((r) => r.zao);
+
+        const zaoIndex = parseInt(majibu[1], 10) - 1;
+        const zao = mazao[zaoIndex];
+
+        if (!zao) {
+          response = "END Chaguo la zao si sahihi. Jaribu tena.";
+        } else {
+          const mikoaResult = await pool.query(
+            `
+            SELECT mkoa
+            FROM (
+              SELECT DISTINCT ON (LOWER(TRIM(mkoa)))
+                mkoa,
+                data_date,
+                updated_at,
+                id
+              FROM bei_mazao
+              WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+                AND mkoa IS NOT NULL
+                AND TRIM(mkoa) <> ''
+                AND bei IS NOT NULL
+                AND bei > 0
+              ORDER BY
+                LOWER(TRIM(mkoa)),
+                data_date DESC NULLS LAST,
+                updated_at DESC NULLS LAST,
+                id DESC
+            ) latest
+            ORDER BY LOWER(TRIM(mkoa))
+            `,
+            [zao],
+          );
+
+          const mikoa = mikoaResult.rows.map((r) => r.mkoa);
+
+          const mkoaIndex = parseInt(majibu[2], 10) - 1;
+          const mkoa = mikoa[mkoaIndex];
+
+          if (!mkoa) {
+            response = "END Chaguo la mkoa si sahihi. Jaribu tena.";
+          } else {
+            const priceResult = await pool.query(
+              `
+              SELECT
+                zao,
+                mkoa,
+                bei,
+                unit,
+                source,
+                data_date,
+                updated_at
+              FROM bei_mazao
+              WHERE LOWER(TRIM(zao)) = LOWER(TRIM($1))
+                AND LOWER(TRIM(mkoa)) = LOWER(TRIM($2))
+                AND bei IS NOT NULL
+                AND bei > 0
+              ORDER BY
+                data_date DESC NULLS LAST,
+                updated_at DESC NULLS LAST,
+                id DESC
+              LIMIT 1
+              `,
+              [zao, mkoa],
+            );
+
+            const price = priceResult.rows[0];
+
+            if (!price) {
+              response =
+                `END Bei ya ${capitalize(zao)} ` +
+                `mkoa wa ${mkoa} haipatikani kwa sasa.`;
+            } else {
+              const unit = price.unit || "kg";
+
+              response =
+                `END Bei ya ${capitalize(price.zao)} ` +
+                `mkoa wa ${price.mkoa} ni ` +
+                `TZS ${Number(price.bei).toLocaleString()} kwa ${unit}.`;
+            }
+          }
         }
       }
-    }
-  } else if (majibu[0] === "3") {
+    } else if (majibu[0] === "3") {
       // --- TAZAMA MATANGAZO ---
 
       const result = await pool.query(
@@ -766,46 +707,14 @@ app.post("/ussd", async (req, res) => {
       // --- HALI YA HEWA ---
 
       const mikoaTZ = {
-        1: {
-          jina: "Dar es Salaam",
-          lat: -6.8,
-          lon: 39.28,
-        },
-        2: {
-          jina: "Dodoma",
-          lat: -6.17,
-          lon: 35.74,
-        },
-        3: {
-          jina: "Mwanza",
-          lat: -2.52,
-          lon: 32.9,
-        },
-        4: {
-          jina: "Arusha",
-          lat: -3.37,
-          lon: 36.68,
-        },
-        5: {
-          jina: "Morogoro",
-          lat: -6.82,
-          lon: 37.66,
-        },
-        6: {
-          jina: "Mbeya",
-          lat: -8.9,
-          lon: 33.46,
-        },
-        7: {
-          jina: "Tanga",
-          lat: -5.07,
-          lon: 39.1,
-        },
-        8: {
-          jina: "Iringa",
-          lat: -7.77,
-          lon: 35.69,
-        },
+        1: { jina: "Dar es Salaam", lat: -6.8, lon: 39.28 },
+        2: { jina: "Dodoma", lat: -6.17, lon: 35.74 },
+        3: { jina: "Mwanza", lat: -2.52, lon: 32.9 },
+        4: { jina: "Arusha", lat: -3.37, lon: 36.68 },
+        5: { jina: "Morogoro", lat: -6.82, lon: 37.66 },
+        6: { jina: "Mbeya", lat: -8.9, lon: 33.46 },
+        7: { jina: "Tanga", lat: -5.07, lon: 39.1 },
+        8: { jina: "Iringa", lat: -7.77, lon: 35.69 },
       };
 
       if (majibu.length === 1) {
@@ -1590,6 +1499,39 @@ app.get("/mkulima/:simu", async (req, res) => {
 // ---- API ROUTES (JSON) - Kwa Flutter App ----
 // ============================================================
 
+// POST /api/wanunuzi/sajili — ROUTE MPYA YA KUSAJILI WANUNUZI POSTGRESQL (SUPABASE)
+app.post("/api/wanunuzi/sajili", async (req, res) => {
+  const { jina, mkoa, phone_number } = req.body;
+  try {
+    const checkUser = await pool.query(
+      "SELECT * FROM wanunuzi WHERE phone_number = $1",
+      [phone_number],
+    );
+
+    if (checkUser.rows.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Mnunuzi tayari yupo kwenye database.",
+        data: checkUser.rows[0],
+      });
+    }
+
+    const result = await pool.query(
+      "INSERT INTO wanunuzi (jina, mkoa, phone_number, verified, tarehe) VALUES ($1, $2, $3, FALSE, NOW()) RETURNING *",
+      [jina || "Mnunuzi Mpya", mkoa || "N/A", phone_number],
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Mnunuzi amesajiliwa kikamilifu kwenye PostgreSQL!",
+      data: result.rows[0],
+    });
+  } catch (err) {
+    console.error("Error inserting buyer to PostgreSQL:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/takwimu
 app.get("/api/takwimu", async (req, res) => {
   try {
@@ -1621,7 +1563,6 @@ app.get("/api/takwimu", async (req, res) => {
   }
 });
 
-
 // Route ya kufanyia majaribio Manual Price Sync
 app.get("/api/test-sync", async (req, res) => {
   try {
@@ -1631,13 +1572,13 @@ app.get("/api/test-sync", async (req, res) => {
     res.json({
       success: true,
       message: "Price sync imekamilika vizuri!",
-      data: result
+      data: result,
     });
   } catch (error) {
     console.error("❌ Hitilafu kwenye manual test sync:", error.message);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1765,16 +1706,9 @@ app.get("/api/mkulima/:simu", async (req, res) => {
 // ============================================================
 // GET /api/bei
 // ============================================================
-//
-// DB inahifadhi HISTORY yote.
-// API inarudisha LATEST price moja kwa kila:
-//     zao + mkoa
-//
-// ============================================================
 
 app.get("/api/bei", async (req, res) => {
   try {
-
     const result = await pool.query(`
       SELECT DISTINCT ON (
         LOWER(TRIM(zao)),
@@ -1806,25 +1740,16 @@ app.get("/api/bei", async (req, res) => {
         LOWER(TRIM(zao)),
         LOWER(TRIM(mkoa)),
 
-        -- latest report first
         data_date DESC NULLS LAST,
 
-        -- if same report date,
-        -- latest update wins
         updated_at DESC NULLS LAST,
 
-        -- final deterministic tie breaker
         id DESC
     `);
 
     res.json(result.rows);
-
   } catch (err) {
-
-    console.error(
-      "Error kwenye GET /api/bei:",
-      err.message
-    );
+    console.error("Error kwenye GET /api/bei:", err.message);
 
     res.status(500).json({
       error: "Imeshindikana kupata bei za mazao.",
@@ -1833,33 +1758,13 @@ app.get("/api/bei", async (req, res) => {
   }
 });
 
-
 // ============================================================
 // POST /api/bei
 // ============================================================
-//
-// Manual/Admin price.
-// Ina-save history kulingana na:
-//
-// source + zao + mkoa + data_date
-//
-// ============================================================
 
 app.post("/api/bei", async (req, res) => {
-
   try {
-
-    const {
-      zao,
-      bei,
-      mkoa,
-      tarehe,
-      source_url,
-    } = req.body;
-
-    // --------------------------------------------------------
-    // VALIDATION
-    // --------------------------------------------------------
+    const { zao, bei, mkoa, tarehe, source_url } = req.body;
 
     if (
       !zao ||
@@ -1873,30 +1778,13 @@ app.post("/api/bei", async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // CLEAN DATA
-    // --------------------------------------------------------
+    const crop = zao.toString().trim().toLowerCase();
 
-    const crop =
-      zao
-        .toString()
-        .trim()
-        .toLowerCase();
+    const region = mkoa.toString().trim();
 
-    const region =
-      mkoa
-        .toString()
-        .trim();
+    const price = Number(bei);
 
-    const price =
-      Number(bei);
-
-    const reportDate =
-      tarehe || new Date();
-
-    // --------------------------------------------------------
-    // SAVE
-    // --------------------------------------------------------
+    const reportDate = tarehe || new Date();
 
     const query = `
       INSERT INTO bei_mazao
@@ -1951,28 +1839,20 @@ app.post("/api/bei", async (req, res) => {
           NOW()
     `;
 
-    await pool.query(
-      query,
-      [
-        crop,
-        price,
-        region,
-        reportDate,
-        source_url || null,
-      ]
-    );
+    await pool.query(query, [
+      crop,
+      price,
+      region,
+      reportDate,
+      source_url || null,
+    ]);
 
     res.json({
       success: true,
       message: "Bei imesasishwa kikamilifu!",
     });
-
   } catch (err) {
-
-    console.error(
-      "Error kwenye /api/bei POST:",
-      err.message
-    );
+    console.error("Error kwenye /api/bei POST:", err.message);
 
     res.status(500).json({
       error: err.message,
@@ -1983,28 +1863,25 @@ app.post("/api/bei", async (req, res) => {
 // GET /api/mazao
 app.get("/api/mazao", async (req, res) => {
   try {
-    // 1. Jaribu kupata mazao kutoka kwenye matangazo yaliyo active
     const matangazoResult = await pool.query(
-      "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM matangazo WHERE active = TRUE AND zao IS NOT NULL ORDER BY zao"
+      "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM matangazo WHERE active = TRUE AND zao IS NOT NULL ORDER BY zao",
     );
 
     let mazaoList = matangazoResult.rows
       .map((r) => r.zao)
       .filter((zao) => zao && zao.trim().length > 0);
 
-    // 2. Kama hakuna matangazo au yako machache, chukua pia mazao kutoka bei_mazao
     if (mazaoList.length === 0) {
       const beiResult = await pool.query(
-        "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM bei_mazao WHERE zao IS NOT NULL ORDER BY zao"
+        "SELECT DISTINCT LOWER(TRIM(zao)) AS zao FROM bei_mazao WHERE zao IS NOT NULL ORDER BY zao",
       );
       mazaoList = beiResult.rows
         .map((r) => r.zao)
         .filter((zao) => zao && zao.trim().length > 0);
     }
 
-    // Capitalize herufi ya kwanza ya kila zao kwa ajili ya Display nzuri kwenye Flutter UI
     const formattedMazao = [...new Set(mazaoList)].map(
-      (zao) => zao.charAt(0).toUpperCase() + zao.slice(1)
+      (zao) => zao.charAt(0).toUpperCase() + zao.slice(1),
     );
 
     res.json({
