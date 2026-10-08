@@ -1515,14 +1515,16 @@ app.post("/api/send-otp", async (req, res) => {
 
   try {
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com", // Tunainisha host moja kwa moja
-      port: 465,              // Tumia port 465 kwa SSL
-      secure: true,           // true kwa port 465
+      host: "smtp.gmail.com",
+      port: 587,              // 👈 BADILISHA HAPA: Tumia 587 badala ya 465
+      secure: false,         // 👈 BADILISHA HAPA: Must be false for port 587
+      requireTLS: true,     // Inalazimisha usalama wa TLS
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-      family: 4,              // 👈 HII NDIO SULUHISHO: Inailazimisha kutumia IPv4 badala ya IPv6
+      family: 4,             // Inatumia IPv4 pekee (kuepuka ENETUNREACH)
+      connectionTimeout: 10000, // Inasubiri max sekunde 10
     });
 
     const mailOptions = {
