@@ -17,6 +17,7 @@
     "firebase-admin": "^14.2.0",
     "google-auth-library": "^10.9.1",
     "node-cron": "^4.6.0",
+    "nodemailer": "^10.0.16",
     "pdf-parse": "^2.4.5",
     "pdf2json": "^4.1.0",
     "pg": "^8.23.0",
