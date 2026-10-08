@@ -1502,21 +1502,27 @@ app.get("/mkulima/:simu", async (req, res) => {
 // ROUTE YA KUTUMA CODE YA UHAKIKI (OTP) KWENYE EMAIL
 // =====================================================
 
-// ROUTE YA KUTUMA OTP (Usiweke tena "const nodemailer = ..." hapa chini)
+// ROUTE YA KUTUMA CODE YA UHAKIKI (OTP)
 app.post("/api/send-otp", async (req, res) => {
   const { email, code } = req.body;
-  
+
   if (!email || !code) {
-    return res.status(400).json({ success: false, error: "Email na code vinahitajika!" });
+    return res.status(400).json({
+      success: false,
+      error: "Email na code vinahitajika!",
+    });
   }
 
   try {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com", // Tunainisha host moja kwa moja
+      port: 465,              // Tumia port 465 kwa SSL
+      secure: true,           // true kwa port 465
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      family: 4,              // 👈 HII NDIO SULUHISHO: Inailazimisha kutumia IPv4 badala ya IPv6
     });
 
     const mailOptions = {
@@ -1524,19 +1530,29 @@ app.post("/api/send-otp", async (req, res) => {
       to: email,
       subject: "Code Yako ya Uhakiki — Soko la Mkulima",
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
           <h2 style="color: #1B6B35;">🌿 Soko la Mkulima</h2>
           <p>Code yako ya kuthibitisha barua pepe ni:</p>
-          <h1 style="background-color: #1B6B35; color: white; padding: 10px 20px; display: inline-block; border-radius: 8px;">${code}</h1>
+          <div style="background-color: #1B6B35; color: white; padding: 12px 24px; font-size: 28px; font-weight: bold; letter-spacing: 5px; display: inline-block; border-radius: 8px;">
+            ${code}
+          </div>
         </div>
       `,
     };
 
     await transporter.sendMail(mailOptions);
-    res.status(200).json({ success: true, message: "Code imetumwa!" });
+    console.log(`✅ OTP Email imetumwa kikamilifu kwenda: ${email}`);
+
+    res.status(200).json({
+      success: true,
+      message: "Code ya uhakiki imetumwa kwenye email yako!",
+    });
   } catch (err) {
     console.error("❌ Hitilafu ya Kutuma Email:", err.message);
-    res.status(500).json({ success: false, error: "Imeshindikana kutuma email." });
+    res.status(500).json({
+      success: false,
+      error: "Imeshindikana kutuma email.",
+    });
   }
 });
 
