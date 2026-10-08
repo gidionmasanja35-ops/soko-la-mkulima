@@ -7,10 +7,9 @@ const express = require("express");
 const { Pool } = require("pg");
 const { GoogleAuth } = require("google-auth-library");
 const nodemailer = require("nodemailer");
-const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first');
-const crypto = require("crypto"); 
-
+const dns = require("dns");
+dns.setDefaultResultOrder("ipv4first");
+const crypto = require("crypto");
 
 // =====================================================
 // AUTOMATIC TANTRADE PRICE SYNC - NEW
@@ -1500,8 +1499,6 @@ app.get("/mkulima/:simu", async (req, res) => {
   }
 });
 
-
-
 // =====================================================
 // ROUTE YA KUTUMA CODE YA UHAKIKI (OTP) KWENYE EMAIL
 // =====================================================
@@ -1521,20 +1518,20 @@ app.post("/api/send-otp", async (req, res) => {
     });
   }
 
-console.log('EMAIL_USER exists:', !!process.env.EMAIL_USER);
-console.log('EMAIL_PASS exists:', !!process.env.EMAIL_PASS);
-console.log('OTP_SECRET exists:', !!process.env.OTP_SECRET);
+  console.log("EMAIL_USER exists:", !!process.env.EMAIL_USER);
+  console.log("EMAIL_PASS exists:", !!process.env.EMAIL_PASS);
+  console.log("OTP_SECRET exists:", !!process.env.OTP_SECRET);
 
-if (
-  !process.env.EMAIL_USER ||
-  !process.env.EMAIL_PASS ||
-  !process.env.OTP_SECRET
-) {
-  return res.status(500).json({
-    success: false,
-    error: "Email service haijawekwa vizuri.",
-  });
-}
+  if (
+    !process.env.EMAIL_USER ||
+    !process.env.EMAIL_PASS ||
+    !process.env.OTP_SECRET
+  ) {
+    return res.status(500).json({
+      success: false,
+      error: "Email service haijawekwa vizuri.",
+    });
+  }
 
   try {
     // OTP ya tarakimu 6, inazalishwa na server.
@@ -1557,7 +1554,7 @@ if (
          attempts = 0,
          verified_at = NULL,
          created_at = NOW()`,
-      [email, codeHash]
+      [email, codeHash],
     );
 
     const transporter = nodemailer.createTransport({
@@ -1565,12 +1562,16 @@ if (
       port: 587,
       secure: false,
       requireTLS: true,
+
+      family: 4, // Jaribu kutumia IPv4
+
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-      connectionTimeout: 20000,
-      greetingTimeout: 20000,
+
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
       socketTimeout: 30000,
     });
 
@@ -1596,10 +1597,7 @@ if (
       });
     } catch (mailError) {
       // Usibakishe OTP inayojulikana kuwa haikutumwa.
-      await pool.query(
-        "DELETE FROM email_otps WHERE email = $1",
-        [email]
-      );
+      await pool.query("DELETE FROM email_otps WHERE email = $1", [email]);
       throw mailError;
     }
 
@@ -1617,23 +1615,15 @@ if (
   }
 });
 
-
-
 app.post("/api/verify-otp", async (req, res) => {
   const email =
     typeof req.body.email === "string"
       ? req.body.email.trim().toLowerCase()
       : "";
 
-  const code =
-    typeof req.body.code === "string"
-      ? req.body.code.trim()
-      : "";
+  const code = typeof req.body.code === "string" ? req.body.code.trim() : "";
 
-  if (
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
-    !/^\d{6}$/.test(code)
-  ) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) {
     return res.status(400).json({
       success: false,
       error: "Email au code si sahihi.",
@@ -1652,7 +1642,7 @@ app.post("/api/verify-otp", async (req, res) => {
       `SELECT email, code_hash, expires_at, attempts, verified_at
        FROM email_otps
        WHERE email = $1`,
-      [email]
+      [email],
     );
 
     if (result.rows.length === 0) {
@@ -1672,10 +1662,7 @@ app.post("/api/verify-otp", async (req, res) => {
     }
 
     if (new Date(otp.expires_at).getTime() <= Date.now()) {
-      await pool.query(
-        "DELETE FROM email_otps WHERE email = $1",
-        [email]
-      );
+      await pool.query("DELETE FROM email_otps WHERE email = $1", [email]);
 
       return res.status(400).json({
         success: false,
@@ -1684,10 +1671,7 @@ app.post("/api/verify-otp", async (req, res) => {
     }
 
     if (otp.attempts >= 5) {
-      await pool.query(
-        "DELETE FROM email_otps WHERE email = $1",
-        [email]
-      );
+      await pool.query("DELETE FROM email_otps WHERE email = $1", [email]);
 
       return res.status(429).json({
         success: false,
@@ -1709,7 +1693,7 @@ app.post("/api/verify-otp", async (req, res) => {
            AND expires_at > NOW()
            AND attempts < 5
          RETURNING attempts`,
-        [email]
+        [email],
       );
 
       if (updated.rows.length === 0) {
@@ -1734,7 +1718,7 @@ app.post("/api/verify-otp", async (req, res) => {
          AND expires_at > NOW()
          AND attempts < 5
        RETURNING email`,
-      [email, submittedHash]
+      [email, submittedHash],
     );
 
     if (verified.rows.length === 0) {
@@ -1758,7 +1742,6 @@ app.post("/api/verify-otp", async (req, res) => {
   }
 });
 
-
 // ============================================================
 // ---- API ROUTES (JSON) - Kwa Flutter App ----
 // ============================================================
@@ -1777,23 +1760,16 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
     const cleanEmail =
       typeof email === "string" ? email.trim().toLowerCase() : "";
 
-    const cleanPhone =
-      phone_number != null ? String(phone_number).trim() : "";
+    const cleanPhone = phone_number != null ? String(phone_number).trim() : "";
 
     const cleanName =
-      typeof jina === "string" && jina.trim()
-        ? jina.trim()
-        : "Mnunuzi Mpya";
+      typeof jina === "string" && jina.trim() ? jina.trim() : "Mnunuzi Mpya";
 
     const cleanMkoa =
-      typeof mkoa === "string" && mkoa.trim()
-        ? mkoa.trim()
-        : "";
+      typeof mkoa === "string" && mkoa.trim() ? mkoa.trim() : "";
 
     const cleanWilaya =
-      typeof wilaya === "string" && wilaya.trim()
-        ? wilaya.trim()
-        : "";
+      typeof wilaya === "string" && wilaya.trim() ? wilaya.trim() : "";
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return res.status(400).json({
@@ -1825,7 +1801,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
          AND verified_at IS NOT NULL
          AND verified_at > NOW() - INTERVAL '30 minutes'
          AND expires_at > verified_at`,
-      [cleanEmail]
+      [cleanEmail],
     );
 
     if (verification.rows.length === 0) {
@@ -1840,7 +1816,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
       `SELECT *
        FROM wanunuzi
        WHERE phone_number = $1`,
-      [cleanPhone]
+      [cleanPhone],
     );
 
     let savedUser;
@@ -1853,7 +1829,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
          SET jina = $1, mkoa = $2, wilaya = $3
          WHERE phone_number = $4
          RETURNING *`,
-        [cleanName, cleanMkoa, cleanWilaya, cleanPhone]
+        [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
       );
 
       savedUser = updatedUser.rows[0];
@@ -1867,7 +1843,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
            (jina, mkoa, wilaya, phone_number, verified, tarehe)
          VALUES ($1, $2, $3, $4, FALSE, NOW())
          RETURNING *`,
-        [cleanName, cleanMkoa, cleanWilaya, cleanPhone]
+        [cleanName, cleanMkoa, cleanWilaya, cleanPhone],
       );
 
       savedUser = insertedUser.rows[0];
@@ -1880,7 +1856,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
     await pool.query(
       `DELETE FROM email_otps
        WHERE email = $1 AND verified_at IS NOT NULL`,
-      [cleanEmail]
+      [cleanEmail],
     );
 
     return res.status(statusCode).json({
@@ -1892,10 +1868,7 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
       data: savedUser,
     });
   } catch (err) {
-    console.error(
-      "Error inserting/updating buyer:",
-      err.message
-    );
+    console.error("Error inserting/updating buyer:", err.message);
 
     return res.status(500).json({
       success: false,
@@ -1904,27 +1877,19 @@ app.post("/api/wanunuzi/sajili", async (req, res) => {
   }
 });
 
-
 /**
  * GET /api/takwimu
  * Pata takwimu za mfumo.
  */
 app.get("/api/takwimu", async (req, res) => {
   try {
-    const [
-      wakulima,
-      matangazo,
-      mazao,
-      wanunuzi,
-    ] = await Promise.all([
+    const [wakulima, matangazo, mazao, wanunuzi] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM wakulima"),
 
-      pool.query(
-        "SELECT COUNT(*) FROM matangazo WHERE active = TRUE"
-      ),
+      pool.query("SELECT COUNT(*) FROM matangazo WHERE active = TRUE"),
 
       pool.query(
-        "SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE"
+        "SELECT COUNT(DISTINCT zao) FROM matangazo WHERE active = TRUE",
       ),
 
       pool.query("SELECT COUNT(*) FROM wanunuzi"),
