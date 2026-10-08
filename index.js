@@ -1520,16 +1520,20 @@ app.post("/api/send-otp", async (req, res) => {
     });
   }
 
-  if (
-    !process.env.EMAIL_USER ||
-    !process.env.EMAIL_PASS ||
-    !process.env.OTP_SECRET
-  ) {
-    return res.status(500).json({
-      success: false,
-      error: "Email service haijawekwa vizuri.",
-    });
-  }
+console.log('EMAIL_USER exists:', !!process.env.EMAIL_USER);
+console.log('EMAIL_PASS exists:', !!process.env.EMAIL_PASS);
+console.log('OTP_SECRET exists:', !!process.env.OTP_SECRET);
+
+if (
+  !process.env.EMAIL_USER ||
+  !process.env.EMAIL_PASS ||
+  !process.env.OTP_SECRET
+) {
+  return res.status(500).json({
+    success: false,
+    error: "Email service haijawekwa vizuri.",
+  });
+}
 
   try {
     // OTP ya tarakimu 6, inazalishwa na server.
