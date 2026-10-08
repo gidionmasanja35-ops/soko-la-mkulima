@@ -1537,7 +1537,7 @@ if (
 
   try {
     // OTP ya tarakimu 6, inazalishwa na server.
-    const code = crypto.randomInt(100000, 1000000).toString();
+    const code = randomInt(100000, 1000000).toString();
 
     const codeHash = crypto
       .createHash("sha256")
