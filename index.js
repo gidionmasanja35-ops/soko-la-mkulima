@@ -7,6 +7,9 @@ const express = require("express");
 const { Pool } = require("pg");
 const { GoogleAuth } = require("google-auth-library");
 const nodemailer = require("nodemailer");
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first'); // 👈 HII NDIO YA KUTATUA ENETUNREACH KUDUMU
+
 
 // =====================================================
 // AUTOMATIC TANTRADE PRICE SYNC - NEW
