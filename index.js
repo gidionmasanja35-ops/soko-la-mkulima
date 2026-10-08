@@ -1509,10 +1509,23 @@ app.get("/mkulima/:simu", async (req, res) => {
 app.post("/api/send-otp", async (req, res) => {
   const { email, code } = req.body;
 
-  if (!email || !code) {
+  if (
+    typeof email !== "string" ||
+    !email.trim() ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+    !/^\d{6}$/.test(String(code || ""))
+  ) {
     return res.status(400).json({
       success: false,
-      error: "Email na code vinahitajika!",
+      error: "Email sahihi na code ya tarakimu 6 vinahitajika.",
+    });
+  }
+
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.error("EMAIL_USER au EMAIL_PASS haijawekwa.");
+    return res.status(500).json({
+      success: false,
+      error: "Email service haijawekwa vizuri.",
     });
   }
 
@@ -1520,43 +1533,48 @@ app.post("/api/send-otp", async (req, res) => {
     const transporter = nodemailer.createTransport({
       host: "smtp.gmail.com",
       port: 587,
-      secure: false, // Must be false for port 587
+      secure: false,
       requireTLS: true,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
-      family: 4, // 👈 INALAZIMISHA IPV4 (Inazuia kosa la ENETUNREACH la IPv6)
-      connectionTimeout: 15000, // Ongeza muda wa kusubiri mtandao (15s)
+      connectionTimeout: 20000,
+      greetingTimeout: 20000,
+      socketTimeout: 30000,
     });
 
-    const mailOptions = {
-      from: '"Soko la Mkulima" <no-reply@sokolamkulima.com>',
-      to: email,
+    await transporter.sendMail({
+      from: `"Soko la Mkulima" <${process.env.EMAIL_USER}>`,
+      to: email.trim(),
       subject: "Code Yako ya Uhakiki — Soko la Mkulima",
+      text: `Code yako ya kuthibitisha barua pepe ni ${code}.`,
       html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-          <h2 style="color: #1B6B35;">🌿 Soko la Mkulima</h2>
+        <div style="font-family:Arial,sans-serif;padding:24px">
+          <h2 style="color:#1B6B35">🌿 Soko la Mkulima</h2>
           <p>Code yako ya kuthibitisha barua pepe ni:</p>
-          <div style="background-color: #1B6B35; color: white; padding: 12px 24px; font-size: 28px; font-weight: bold; letter-spacing: 5px; display: inline-block; border-radius: 8px;">
+          <div style="background:#1B6B35;color:white;padding:14px;
+                      font-size:28px;font-weight:bold;letter-spacing:6px;
+                      display:inline-block;border-radius:8px">
             ${code}
           </div>
+          <p>Usimpe mtu mwingine code hii.</p>
         </div>
       `,
-    };
+    });
 
-    await transporter.sendMail(mailOptions);
-    console.log(`✅ OTP Email imetumwa kikamilifu kwenda: ${email}`);
+    console.log(`OTP email imetumwa kwenda: ${email.trim()}`);
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "Code ya uhakiki imetumwa kwenye email yako!",
+      message: "Code ya uhakiki imetumwa kwenye email yako.",
     });
   } catch (err) {
-    console.error("❌ Hitilafu ya Kutuma Email:", err.message);
-    res.status(500).json({
+    console.error("OTP email error:", err.code, err.message);
+
+    return res.status(500).json({
       success: false,
-      error: "Imeshindikana kutuma email.",
+      error: "Imeshindikana kutuma email kwa sasa.",
     });
   }
 });
